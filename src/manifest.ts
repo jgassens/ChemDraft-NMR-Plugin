@@ -15,7 +15,7 @@ export const nmrForwardPredictionAnalysisType = "nmr.forward-prediction";
 export const nmrPredictorManifest: PluginManifest = {
   id: nmrPredictorPluginId,
   name: "NMR Shift Predictor",
-  version: "0.0.0",
+  version: "0.1.0",
   apiVersion: "^0.1.0",
   description:
     "¹H/¹³C NMR shift predictor: HOSE-fragment lookup over shift statistics derived from NMRShiftDB2 experimental assignments (nmrshiftdb2 Database License, ODbL-derived). ¹H multiplicity and couplings are first-order topology estimates, not measured values; stick height is predicted equivalent nuclei, not experimental integration; unsupported environments are omitted with a warning rather than given a fabricated value.",

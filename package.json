@@ -1,21 +1,23 @@
 {
   "name": "@chemdraft/plugin-nmr-predictor",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "type": "module",
   "license": "MIT",
+  "description": "ChemDraft NMR shift predictor plugin — 1H/13C HOSE-fragment prediction over NMRShiftDB2-derived statistics.",
+  "scripts": {
+    "package": "tsx tools/plugin-package/package.ts -- . --name nmr-predictor",
+    "test": "vitest run"
+  },
   "dependencies": {
-    "@chemdraft/plugin-api": "workspace:*",
+    "@chemdraft/plugin-api": "file:./vendor/chemdraft-plugin-api-0.1.0.tgz",
     "openchemlib": "^9.22.1",
     "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@chemdraft/plugin-host": "workspace:*"
-  },
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
-    }
+    "@chemdraft/plugin-host": "file:./vendor/chemdraft-plugin-host-0.1.0.tgz",
+    "tsx": "^4.23.1",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.0",
+    "vitest": "^3.2.4"
   }
 }
