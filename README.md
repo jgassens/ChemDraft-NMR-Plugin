@@ -10,12 +10,31 @@ This repo builds the **installable plugin package** — the `nmr-predictor-<vers
 a ChemDraft host downloads and installs (ADR-0029/M35). It compiles only against
 the vendored ChemDraft plugin SDK; no monorepo is required.
 
+## Download and install
+
+Download the current `nmr-predictor-<version>.zip` from the
+[latest GitHub release](https://github.com/jgassens/ChemDraft-NMR-Plugin/releases/latest).
+Do not unzip it.
+
+In the ChemDraft desktop app:
+
+1. Choose **Plugins → Add or Remove Plugins…**.
+2. Select **Add plugin from package…** and choose the downloaded ZIP.
+3. Review the plugin identity and declared permissions, then select **Install**.
+4. Select a structure and run **Analyze → Predict ¹³C NMR Shifts** or
+   **Analyze → Predict ¹H NMR Shifts (experimental)**.
+
+Each release also includes a `.zip.sha256` sidecar for verifying the downloaded
+package. The plugin requires a ChemDraft host compatible with plugin API
+`^0.1.0`.
+
 ## Provenance
 
-Extracted from the ChemDraft monorepo (`codex/nmr-plugin` @ `125aebeb`); full
-development history is preserved on that branch and can be grafted in later via
-`git subtree split` once the source repo is off iCloud. This repository begins
-with a single squashed initial commit by design.
+The M6–M36 development history is preserved in this repository. The plugin was
+extracted from the ChemDraft monorepo at `125aebeb`; commit `37d61e6` then made
+it a self-contained repository with vendored SDK archives and standalone release
+packaging. ChemDraft intentionally loads it as an installable plugin rather than
+bundling its implementation in the core application.
 
 ## The SDK is vendored (ADR-0031)
 
@@ -32,7 +51,7 @@ an npm registry:
 Nothing is published to or fetched from a private registry. To move the plugin to
 a newer SDK, drop the new tarballs into `vendor/` and update the `file:` versions.
 
-## Install
+## Developer setup
 
 ```bash
 npm install
