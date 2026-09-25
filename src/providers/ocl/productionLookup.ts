@@ -1,7 +1,7 @@
 import * as OCL from "openchemlib";
 
 import type { NmrNucleus, NmrPredictionOptions } from "../../domain/contracts";
-import { atomEnvironmentCodes, environmentKey, MAX_SPHERES } from "./environmentCode";
+import { atomEnvironmentCodes, environmentKey, MAX_SPHERES, protonHostAtom } from "./environmentCode";
 import type { CompiledNmrDatabase, NmrDatabaseEntry } from "./localDatabase";
 
 export interface Match {
@@ -41,6 +41,8 @@ export function prepareProductionLookup(
   const normalized = molecule.getCompactCopy();
   assertRelevantAtomIndexesPreserved(molecule, normalized);
   normalized.removeExplicitHydrogens();
+  // Atom-map numbers (e.g. NMReDATA molfile indices) are bookkeeping, never part of an environment key.
+  for (let atom = 0; atom < normalized.getAllAtoms(); atom += 1) normalized.setAtomMapNo(atom, 0, false);
   normalized.ensureHelperArrays(OCL.Molecule.cHelperRings);
   assertHeavyAtomIndexesPreserved(molecule, normalized);
 
@@ -69,15 +71,22 @@ export function prepareProductionLookup(
 }
 
 /**
- * The single production database lookup. Every atom in a constitutional class is resolved through
- * that class's OCL-canonical representative and environment codes from the canonical molecule.
+ * The heavy atom whose environment keys a resonance: the carbon itself for ¹³C, the attached heavy
+ * atom for an explicit ¹H. Returns -1 when the atom cannot carry that nucleus. Indices are into the
+ * molecule passed to `prepareProductionLookup`, which keeps heavy-atom indices unchanged.
  */
-export function lookupProductionEnvironment(
-  database: CompiledNmrDatabase,
-  context: ProductionLookupContext,
-  nucleus: NmrNucleus,
-  atom: number
-): ProductionLookupResult {
+export function productionCodeAtom(molecule: OCL.Molecule, nucleus: NmrNucleus, atom: number): number {
+  if (nucleus === "13C") return molecule.getAtomicNo(atom) === 6 ? atom : -1;
+  return molecule.getAtomicNo(atom) === 1 ? protonHostAtom(molecule, atom) : -1;
+}
+
+/**
+ * The single source of production environment codes, deepest first. Database ingestion keys every
+ * assigned atom with exactly these codes and lookup queries exactly these codes, so both sides see
+ * the same class representative, canonical molecule and canonical index. Codes are cached per class
+ * representative on the context, so symmetric atoms and repeated assignments reuse one computation.
+ */
+export function productionEnvironmentCodes(context: ProductionLookupContext, atom: number): readonly string[] {
   const representativeAtom = context._representativeByAtom[atom];
   if (representativeAtom === undefined) {
     throw new Error(`Atom ${atom} is not present in the prepared production lookup molecule.`);
@@ -92,7 +101,21 @@ export function lookupProductionEnvironment(
     codes = atomEnvironmentCodes(context._canonicalMolecule, canonicalAtom, context.maxSpheres);
     context._codesByRepresentative.set(representativeAtom, codes);
   }
+  return codes;
+}
 
+/**
+ * The single production database lookup. Every atom in a constitutional class is resolved through
+ * that class's OCL-canonical representative and environment codes from the canonical molecule.
+ */
+export function lookupProductionEnvironment(
+  database: CompiledNmrDatabase,
+  context: ProductionLookupContext,
+  nucleus: NmrNucleus,
+  atom: number
+): ProductionLookupResult {
+  const codes = productionEnvironmentCodes(context, atom);
+  const representativeAtom = context._representativeByAtom[atom];
   for (const code of codes) {
     const entry = database.entries[environmentKey(nucleus, code)];
     if (entry) return { representativeAtom, codes, match: { code, entry } };

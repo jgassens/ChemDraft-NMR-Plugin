@@ -1,11 +1,12 @@
 import * as OCL from "openchemlib";
 
 import type { NmrNucleus, NmrPredictionOptions } from "../../domain/contracts";
-import { protonHostAtom, MAX_SPHERES } from "./environmentCode";
+import { MAX_SPHERES } from "./environmentCode";
 import { estimateProtonIncrement } from "./incrementEstimator";
 import type { CompiledNmrDatabase } from "./localDatabase";
-import { lookupProductionEnvironment, prepareProductionLookup, shiftFor } from "./productionLookup";
+import { lookupProductionEnvironment, prepareProductionLookup, productionCodeAtom, shiftFor } from "./productionLookup";
 import type { NmredataRecord } from "./nmredata";
+import { parseNmredataMolecule } from "./nmredataMolecule";
 
 /**
  * Leakage-free accuracy benchmark (ADR-0026). The corpus is split by *structure identity* (OCL
@@ -109,23 +110,11 @@ export function evaluateHeldOut(
 
   for (let structureIndex = 0; structureIndex < heldOut.length; structureIndex += 1) {
     const record = heldOut[structureIndex];
-    let molecule: OCL.Molecule;
-    try {
-      molecule = OCL.Molecule.fromMolfile(record.molfile);
-    } catch {
+    const parsed = parseNmredataMolecule(record.molfile);
+    if (!parsed) {
       continue;
     }
-    if (molecule.getAllAtoms() === 0) {
-      continue;
-    }
-    for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
-      molecule.setAtomMapNo(atom, atom + 1, false);
-    }
-    molecule.ensureHelperArrays(OCL.Molecule.cHelperRings);
-    const oclAtomByMolfileIndex = new Map<number, number>();
-    for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
-      oclAtomByMolfileIndex.set(molecule.getAtomMapNo(atom), atom);
-    }
+    const { molecule, oclAtomByMolfileIndex } = parsed;
     const lookupContext = prepareProductionLookup(molecule, maxSpheres);
 
     for (const assignment of record.assignments) {
@@ -138,14 +127,8 @@ export function evaluateHeldOut(
       const oclAtom = oclAtomByMolfileIndex.get(assignment.atoms[0]);
       if (oclAtom === undefined) continue;
 
-      let codeAtom = oclAtom;
-      if (nucleus === "13C") {
-        if (molecule.getAtomicNo(oclAtom) !== 6) continue;
-      } else {
-        if (molecule.getAtomicNo(oclAtom) !== 1) continue;
-        codeAtom = protonHostAtom(molecule, oclAtom);
-        if (codeAtom < 0) continue;
-      }
+      const codeAtom = productionCodeAtom(molecule, nucleus, oclAtom);
+      if (codeAtom < 0) continue;
 
       const row: BenchmarkRow = { nucleus, structureIndex, assignedPpm: assignment.shift };
       const lookup = lookupProductionEnvironment(database, lookupContext, nucleus, codeAtom);

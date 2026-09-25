@@ -1,9 +1,14 @@
-import * as OCL from "openchemlib";
-
 import type { NmrNucleus } from "../../domain/contracts";
-import { atomEnvironmentCodes, environmentKey, protonHostAtom, sphereDepthOf, MAX_SPHERES } from "./environmentCode";
+import { environmentKey, sphereDepthOf, MAX_SPHERES } from "./environmentCode";
 import { summarizeShifts, type CompiledNmrDatabase, type NmrDatabaseEntry, type NmrDatabaseProvenance } from "./localDatabase";
+import { parseNmredataMolecule } from "./nmredataMolecule";
 import { extractMolfile, parseAssignments, parseSpectrumLabels, splitRecords } from "./nmredata";
+import {
+  prepareProductionLookup,
+  productionCodeAtom,
+  productionEnvironmentCodes,
+  type ProductionLookupContext
+} from "./productionLookup";
 
 export interface BuildDatabaseOptions {
   provenance: Omit<
@@ -20,11 +25,11 @@ export interface BuildDatabaseOptions {
 
 /**
  * Compile a NMReDATA/SDF export (e.g. `nmrshiftdb2rawdata.nmredata.sd`) into aggregated HOSE-code →
- * shift statistics. For each atom-assigned resonance it derives the atom's environment code at every
- * sphere depth (from the explicit-H molfile — codes that provably match implicit-H SMILES queries) and
- * buckets the shift; buckets are then summarized to median/mean/stdev/min/max/n. Only the compiled
- * statistics are emitted — never the raw structures — so the artifact is small and a separate,
- * attributed data asset.
+ * shift statistics. Each atom-assigned resonance is keyed by `productionEnvironmentCodes` — exactly
+ * the codes production lookup queries for that atom (class representative, canonical molecule, every
+ * sphere depth) — and its shift is bucketed under each; buckets are then summarized to
+ * median/mean/stdev/min/max/n. Only the compiled statistics are emitted — never the raw structures —
+ * so the artifact is small and a separate, attributed data asset.
  */
 export function buildNmrDatabase(rawSdContent: string, options: BuildDatabaseOptions): CompiledNmrDatabase {
   // Normalize line endings so the record split and tag terminators work on CRLF exports too.
@@ -47,23 +52,17 @@ export function buildNmrDatabase(rawSdContent: string, options: BuildDatabaseOpt
     const carbonLabels = parseSpectrumLabels(record, "NMREDATA_1D_13C");
     const protonLabels = parseSpectrumLabels(record, "NMREDATA_1D_1H");
 
-    let molecule: OCL.Molecule;
+    const parsed = parseNmredataMolecule(molfile);
+    if (!parsed) {
+      continue;
+    }
+    const { molecule, oclAtomByMolfileIndex } = parsed;
+    // Prepared once per record; it caches codes per class representative across assignments.
+    let lookupContext: ProductionLookupContext;
     try {
-      molecule = OCL.Molecule.fromMolfile(molfile);
+      lookupContext = prepareProductionLookup(molecule, maxSpheres);
     } catch {
       continue;
-    }
-    if (molecule.getAllAtoms() === 0) {
-      continue;
-    }
-    // Tag the molfile's 1-based atom order before helper arrays move explicit H to the end.
-    for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
-      molecule.setAtomMapNo(atom, atom + 1, false);
-    }
-    molecule.ensureHelperArrays(OCL.Molecule.cHelperRings);
-    const oclAtomByMolfileIndex = new Map<number, number>();
-    for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
-      oclAtomByMolfileIndex.set(molecule.getAtomMapNo(atom), atom);
     }
 
     let usedStructure = false;
@@ -81,22 +80,12 @@ export function buildNmrDatabase(rawSdContent: string, options: BuildDatabaseOpt
         continue;
       }
 
-      let codeAtom = oclAtom;
-      if (nucleus === "13C") {
-        if (molecule.getAtomicNo(oclAtom) !== 6) {
-          continue;
-        }
-      } else {
-        if (molecule.getAtomicNo(oclAtom) !== 1) {
-          continue;
-        }
-        codeAtom = protonHostAtom(molecule, oclAtom);
-        if (codeAtom < 0) {
-          continue;
-        }
+      const codeAtom = productionCodeAtom(molecule, nucleus, oclAtom);
+      if (codeAtom < 0) {
+        continue;
       }
 
-      for (const code of atomEnvironmentCodes(molecule, codeAtom, maxSpheres)) {
+      for (const code of productionEnvironmentCodes(lookupContext, codeAtom)) {
         const key = environmentKey(nucleus, code);
         const bucket = buckets.get(key);
         if (bucket) {

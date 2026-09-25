@@ -18,9 +18,12 @@ export function sphereDepthOf(code: string): number {
 
 /**
  * Environment codes for one atom at every sphere depth, deepest first (index 0 = MAX_SPHERES).
- * The same describeAtomEnvironment used by the fixture provider — verified to produce identical codes
- * for explicit-H molfiles (ingestion) and implicit-H SMILES (query), which is what lets a database
- * built from NMReDATA molfiles match live SMILES selections.
+ * The same describeAtomEnvironment used by the fixture provider. Its breadth-first walk depends on
+ * atom order at deep spheres, so on its own it does NOT give identical codes for the same atom in
+ * two differently ordered inputs (e.g. an NMReDATA molfile vs. a user's SMILES). Database ingestion
+ * and production lookup therefore never call this directly on their input; both go through
+ * `productionEnvironmentCodes` (productionLookup.ts), which applies it to an explicit-H-stripped,
+ * OCL-canonical copy at the canonical index of the atom's symmetry-class representative.
  */
 export function atomEnvironmentCodes(molecule: OCL.Molecule, atom: number, maxSpheres = MAX_SPHERES): string[] {
   const codes: string[] = [];
