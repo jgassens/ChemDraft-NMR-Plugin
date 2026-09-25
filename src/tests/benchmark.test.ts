@@ -10,7 +10,14 @@ import {
   type BenchmarkRow
 } from "../providers/ocl/benchmark";
 import { buildNmrDatabase } from "../providers/ocl/buildDatabase";
+import { protonHostAtom } from "../providers/ocl/environmentCode";
+import type { CompiledNmrDatabase, NmrDatabaseEntry } from "../providers/ocl/localDatabase";
 import { parseNmredataRecords } from "../providers/ocl/nmredata";
+import { OclHosePredictor } from "../providers/ocl/OclHosePredictor";
+import {
+  lookupProductionEnvironment,
+  prepareProductionLookup
+} from "../providers/ocl/productionLookup";
 
 /** Single-record NMReDATA SD from a SMILES + ¹³C atom assignments (1-based molfile indices). */
 function makeSd(smiles: string, carbons: { atom: number; shift: number }[]): string {
@@ -18,6 +25,63 @@ function makeSd(smiles: string, carbons: { atom: number; shift: number }[]): str
   const assignment = carbons.map((carbon, index) => `s${index}, ${carbon.shift}, ${carbon.atom}\\`).join("\n");
   const spectrum = carbons.map((carbon, index) => `${carbon.shift}, L=s${index}\\`).join("\n");
   return `${molfile}\n> <NMREDATA_ASSIGNMENT>\n${assignment}\n\n> <NMREDATA_1D_13C>\n${spectrum}\n\n$$$$\n`;
+}
+
+/** One record assigning every carbon and every explicitly represented proton. */
+function makeExplicitHydrogenSd(smiles: string): string {
+  const molecule = OCL.Molecule.fromSmiles(smiles);
+  molecule.addImplicitHydrogens();
+  const molfile = molecule.toMolfile();
+  const parsed = OCL.Molecule.fromMolfile(molfile);
+  const carbonAtoms: number[] = [];
+  const protonAtoms: number[] = [];
+  for (let atom = 0; atom < parsed.getAllAtoms(); atom += 1) {
+    if (parsed.getAtomicNo(atom) === 6) carbonAtoms.push(atom + 1);
+    if (parsed.getAtomicNo(atom) === 1) protonAtoms.push(atom + 1);
+  }
+  const assignments = [
+    ...carbonAtoms.map((atom, index) => `c${index}, 0, ${atom}\\`),
+    ...protonAtoms.map((atom, index) => `h${index}, 0, ${atom}\\`)
+  ].join("\n");
+  const carbonSpectrum = carbonAtoms.map((_, index) => `0, L=c${index}\\`).join("\n");
+  const protonSpectrum = protonAtoms.map((_, index) => `0, L=h${index}\\`).join("\n");
+  return `${molfile}\n> <NMREDATA_ASSIGNMENT>\n${assignments}\n\n> <NMREDATA_1D_13C>\n${carbonSpectrum}\n\n> <NMREDATA_1D_1H>\n${protonSpectrum}\n\n$$$$\n`;
+}
+
+function parityDatabase(records: ReturnType<typeof parseNmredataRecords>): CompiledNmrDatabase {
+  const entries: Record<string, NmrDatabaseEntry> = {};
+  const database: CompiledNmrDatabase = {
+    provenance: {
+      ...PROVENANCE,
+      structureCount: records.length,
+      entryCount: 0,
+      nuclei: ["1H", "13C"],
+      generatedAt: "t"
+    },
+    entries
+  };
+  let nextCarbonShift = 20;
+  let nextProtonShift = 1;
+
+  for (const record of records) {
+    const molecule = OCL.Molecule.fromMolfile(record.molfile);
+    molecule.ensureHelperArrays(OCL.Molecule.cHelperRings);
+    const context = prepareProductionLookup(molecule);
+    for (const [nucleus, classes] of [
+      ["13C", context.carbonClasses],
+      ["1H", context.protonClasses]
+    ] as const) {
+      for (const atoms of classes) {
+        const { codes } = lookupProductionEnvironment(database, context, nucleus, atoms[0]);
+        const key = `${nucleus}@${codes[0]}`;
+        if (entries[key]) continue;
+        const ppm = nucleus === "13C" ? nextCarbonShift++ : nextProtonShift++ / 10;
+        entries[key] = { nucleus, sphere: 4, n: 10, median: ppm, mean: ppm, stdev: 0.1, min: ppm, max: ppm };
+      }
+    }
+  }
+  database.provenance.entryCount = Object.keys(entries).length;
+  return database;
 }
 
 const PROVENANCE = { name: "t", version: "1", source: "t", license: "t", attribution: "t", note: "t" };
@@ -61,6 +125,82 @@ describe("splitCorpusByStructure", () => {
 });
 
 describe("evaluateHeldOut", () => {
+  it("matches production for every explicit-H carbon and proton assignment", async () => {
+    const smilesFixtures = [
+      "Cc1ccccc1",
+      "c1ccc2ccccc2c1",
+      "c1cc2ccccc2cc1",
+      "C[C@H](Br)[C@H](Br)C",
+      "CC(O)C(C)C"
+    ];
+    const records = parseNmredataRecords(smilesFixtures.map(makeExplicitHydrogenSd).join(""));
+    expect(records).toHaveLength(smilesFixtures.length);
+    const database = parityDatabase(records);
+    const rows = evaluateHeldOut(database, records);
+    const predictor = new OclHosePredictor({ database, now: () => "t" });
+
+    let rowIndex = 0;
+    for (const [recordIndex, record] of records.entries()) {
+      const molecule = OCL.Molecule.fromMolfile(record.molfile);
+      expect(molecule.getAllAtoms()).toBeGreaterThan(molecule.getAtoms());
+      for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
+        molecule.setAtomMapNo(atom, atom + 1, false);
+      }
+      molecule.ensureHelperArrays(OCL.Molecule.cHelperRings);
+      const atomByMolfileIndex = new Map<number, number>();
+      for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
+        atomByMolfileIndex.set(molecule.getAtomMapNo(atom), atom);
+      }
+
+      const result = await predictor.predict({
+        structure: { format: "molfile-v2000", value: record.molfile },
+        nuclei: ["13C", "1H"],
+        options: { statistic: "median", hoseLevels: [4, 3, 2, 1], ignoreLabileHydrogens: false }
+      });
+      const implicitHydrogenResult = await predictor.predict({
+        structure: { format: "smiles", value: smilesFixtures[recordIndex] },
+        nuclei: ["13C", "1H"],
+        options: { statistic: "median", hoseLevels: [4, 3, 2, 1], ignoreLabileHydrogens: false }
+      });
+      const resonanceSignature = (prediction: typeof result) =>
+        prediction.resonances
+          .map((resonance) => [
+            resonance.nucleus,
+            resonance.deltaPpm,
+            resonance.equivalentNuclei,
+            resonance.evidence?.method,
+            resonance.crossCheck?.incrementPpm
+          ])
+          .sort((first, second) => JSON.stringify(first).localeCompare(JSON.stringify(second)));
+      expect(resonanceSignature(result)).toEqual(resonanceSignature(implicitHydrogenResult));
+
+      for (const assignment of record.assignments) {
+        const nucleus = record.carbonLabels.has(assignment.label)
+          ? "13C"
+          : record.protonLabels.has(assignment.label)
+            ? "1H"
+            : undefined;
+        if (!nucleus) continue;
+        const assignedAtom = atomByMolfileIndex.get(assignment.atoms[0]);
+        expect(assignedAtom).toBeDefined();
+        if (assignedAtom === undefined) continue;
+        const hostAtom = nucleus === "1H" ? protonHostAtom(molecule, assignedAtom) : assignedAtom;
+        const resonance = result.resonances.find(
+          (candidate) =>
+            candidate.nucleus === nucleus && candidate.atomRefs.some((ref) => ref.sourceAtomIndex === hostAtom)
+        );
+        const row = rows[rowIndex++];
+
+        expect(resonance?.evidence?.method).toBe("hose-fragment");
+        expect(row.hosePpm).toBe(resonance?.deltaPpm);
+        if (nucleus === "1H") {
+          expect(row.incrementPpm).toBe(resonance?.crossCheck?.incrementPpm);
+        }
+      }
+    }
+    expect(rowIndex).toBe(rows.length);
+  });
+
   it("scores a held-out structure against the production lookup with zero error on a memorized twin", () => {
     // Train on 6 propane records (n = 6 per environment ≥ any prune), hold out a 7th propane. Its
     // environments are all in train, so the deepest sphere matches exactly and |Δ| = 0.

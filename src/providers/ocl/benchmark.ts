@@ -1,17 +1,17 @@
 import * as OCL from "openchemlib";
 
 import type { NmrNucleus, NmrPredictionOptions } from "../../domain/contracts";
-import { atomEnvironmentCodes, protonHostAtom, MAX_SPHERES } from "./environmentCode";
+import { protonHostAtom, MAX_SPHERES } from "./environmentCode";
 import { estimateProtonIncrement } from "./incrementEstimator";
 import type { CompiledNmrDatabase } from "./localDatabase";
-import { matchEnvironment, shiftFor } from "./OclHosePredictor";
+import { lookupProductionEnvironment, prepareProductionLookup, shiftFor } from "./productionLookup";
 import type { NmredataRecord } from "./nmredata";
 
 /**
  * Leakage-free accuracy benchmark (ADR-0026). The corpus is split by *structure identity* (OCL
  * idcode), so every record of the same compound — duplicates included — lands on the same side and a
  * held-out molecule can never have contributed shifts to the database it is scored against. Held-out
- * assignments are scored through the production lookup itself (`matchEnvironment` + `shiftFor`),
+ * assignments are scored through the production lookup itself (`lookupProductionEnvironment`),
  * never a reimplementation.
  */
 
@@ -126,6 +126,7 @@ export function evaluateHeldOut(
     for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
       oclAtomByMolfileIndex.set(molecule.getAtomMapNo(atom), atom);
     }
+    const lookupContext = prepareProductionLookup(molecule, maxSpheres);
 
     for (const assignment of record.assignments) {
       const nucleus: NmrNucleus | undefined = record.carbonLabels.has(assignment.label)
@@ -147,7 +148,8 @@ export function evaluateHeldOut(
       }
 
       const row: BenchmarkRow = { nucleus, structureIndex, assignedPpm: assignment.shift };
-      const found = matchEnvironment(database, nucleus, atomEnvironmentCodes(molecule, codeAtom, maxSpheres));
+      const lookup = lookupProductionEnvironment(database, lookupContext, nucleus, codeAtom);
+      const found = lookup.match;
       if (found) {
         row.hosePpm = shiftFor(found.entry, statistic);
         row.sphere = found.entry.sphere;
@@ -155,7 +157,7 @@ export function evaluateHeldOut(
         row.tier = benchmarkTier(found.entry.sphere, found.entry.n);
       }
       if (nucleus === "1H") {
-        const increment = estimateProtonIncrement(molecule, codeAtom);
+        const increment = estimateProtonIncrement(molecule, lookup.representativeAtom);
         if (increment.applicable) {
           row.incrementPpm = increment.ppm;
         }

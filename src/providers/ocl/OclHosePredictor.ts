@@ -17,10 +17,17 @@ import { fingerprintStructureInput } from "../../domain/fingerprint";
 import { nmrWarning, NmrWarningCodes, type NmrPredictionWarning } from "../../domain/warnings";
 import { normalizeStructure } from "../../application/normalizeStructure";
 import { computeMultiplet } from "./coupling";
-import { atomEnvironmentCodes, environmentKey, MAX_SPHERES } from "./environmentCode";
+import { MAX_SPHERES } from "./environmentCode";
 import { estimateCarbonShiftWithApplicability } from "./functionalGroupFallback";
 import { estimateProtonIncrement } from "./incrementEstimator";
 import type { CompiledNmrDatabase, NmrDatabaseEntry, NmrDatabaseProvenance } from "./localDatabase";
+import {
+  lookupProductionEnvironment,
+  prepareProductionLookup,
+  shiftFor,
+  type Match,
+  type ProductionLookupContext
+} from "./productionLookup";
 import { buildStructureDepiction } from "./structureDepiction";
 import bundledDatabase from "./nmrshiftdb2.database.json";
 
@@ -32,19 +39,9 @@ export interface OclHosePredictorOptions {
   now?: () => string;
 }
 
-export interface Match {
-  code: string;
-  entry: NmrDatabaseEntry;
-}
-
 interface PredictionCounts {
   estimated: number;
   omitted: number;
-}
-
-interface CanonicalAtomOrder {
-  molecule: OCL.Molecule;
-  inputToCanonical: readonly number[];
 }
 
 type Statistic = NmrPredictionOptions["statistic"];
@@ -96,7 +93,7 @@ export class OclHosePredictor implements NmrPredictor {
     const warnings: NmrPredictionWarning[] = [...normalized.warnings];
     const resonances: NmrResonance[] = [];
     const totals: PredictionCounts = { estimated: 0, omitted: 0 };
-    const canonicalOrder = canonicalAtomOrder(molecule);
+    const lookupContext = prepareProductionLookup(molecule, maxSpheres);
 
     for (const nucleus of dedupeNuclei(request.nuclei)) {
       throwIfAborted(signal);
@@ -106,13 +103,12 @@ export class OclHosePredictor implements NmrPredictor {
           ? predictCarbon(
               this.database,
               molecule,
-              canonicalOrder,
+              lookupContext,
               request.options.statistic,
-              maxSpheres,
               resonances,
               warnings
             )
-          : predictProton(this.database, molecule, canonicalOrder, request, maxSpheres, resonances, warnings);
+          : predictProton(this.database, molecule, lookupContext, request, resonances, warnings);
       totals.estimated += counts.estimated;
       totals.omitted += counts.omitted;
       warnPotentiallyDiastereotopicMethyls(molecule, nucleus, resonances.slice(resonanceStart), warnings);
@@ -158,40 +154,22 @@ export class OclHosePredictor implements NmrPredictor {
   }
 }
 
-/** The production database lookup: first (deepest) environment code with an entry wins. Exported so
- * the leakage-free benchmark scores exactly this path, never a reimplementation of it. */
-export function matchEnvironment(
-  database: CompiledNmrDatabase,
-  nucleus: NmrNucleus,
-  codes: readonly string[]
-): Match | undefined {
-  for (const code of codes) {
-    const entry = database.entries[environmentKey(nucleus, code)];
-    if (entry) return { code, entry };
-  }
-  return undefined;
-}
-
 function predictCarbon(
   database: CompiledNmrDatabase,
   molecule: OCL.Molecule,
-  canonicalOrder: CanonicalAtomOrder,
+  lookupContext: ProductionLookupContext,
   statistic: Statistic,
-  maxSpheres: number,
   resonances: NmrResonance[],
   warnings: NmrPredictionWarning[]
 ): PredictionCounts {
   let estimated = 0;
   let omitted = 0;
 
-  for (const atoms of symmetryClasses(molecule, (atom) => molecule.getAtomicNo(atom) === 6)) {
-    const representative = canonicalRepresentative(atoms, canonicalOrder.inputToCanonical);
-    const codes = atomEnvironmentCodes(
-      canonicalOrder.molecule,
-      canonicalOrder.inputToCanonical[representative],
-      maxSpheres
-    );
-    const found = matchEnvironment(database, "13C", codes);
+  for (const atoms of lookupContext.carbonClasses) {
+    const lookup = lookupProductionEnvironment(database, lookupContext, "13C", atoms[0]);
+    const representative = lookup.representativeAtom;
+    const codes = lookup.codes;
+    const found = lookup.match;
     if (found) {
       resonances.push(
         buildResonance(
@@ -233,9 +211,8 @@ function predictCarbon(
 function predictProton(
   database: CompiledNmrDatabase,
   molecule: OCL.Molecule,
-  canonicalOrder: CanonicalAtomOrder,
+  lookupContext: ProductionLookupContext,
   request: NmrPredictionRequest,
-  maxSpheres: number,
   resonances: NmrResonance[],
   warnings: NmrPredictionWarning[]
 ): PredictionCounts {
@@ -258,8 +235,9 @@ function predictProton(
     );
   }
 
-  for (const atoms of symmetryClasses(molecule, (atom) => molecule.getAllHydrogens(atom) > 0)) {
-    const representative = canonicalRepresentative(atoms, canonicalOrder.inputToCanonical);
+  for (const atoms of lookupContext.protonClasses) {
+    const lookup = lookupProductionEnvironment(database, lookupContext, "1H", atoms[0]);
+    const representative = lookup.representativeAtom;
     const protonCounts = atoms.map((atom) => molecule.getAllHydrogens(atom));
     if (
       LABILE_HYDROGEN_HOSTS.has(molecule.getAtomicNo(representative)) &&
@@ -268,12 +246,8 @@ function predictProton(
       omittedLabile += protonCounts.reduce((sum, count) => sum + count, 0);
       continue;
     }
-    const codes = atomEnvironmentCodes(
-      canonicalOrder.molecule,
-      canonicalOrder.inputToCanonical[representative],
-      maxSpheres
-    );
-    const found = matchEnvironment(database, "1H", codes);
+    const codes = lookup.codes;
+    const found = lookup.match;
     if (found) {
       const multiplet = computeMultiplet(molecule, representative);
       const crossCheck = protonCrossCheck(molecule, representative, found.entry, request.options.statistic);
@@ -526,77 +500,6 @@ function warnOmitted(
       }
     )
   );
-}
-
-export function shiftFor(entry: NmrDatabaseEntry, statistic: Statistic): number {
-  return statistic === "mean" ? entry.mean : entry.median;
-}
-
-/** Constitutionally equivalent atoms are isochronous unless a stereogenic environment makes them
- * diastereotopic. The model does not predict separate diastereotopic values, so symmetry is computed
- * after removing stereo from an index-preserving copy. The live molecule retains its stereo data for
- * warnings, fallback chemistry, multiplets, cross-checks, atomRefs, and depiction. */
-function symmetryClasses(molecule: OCL.Molecule, include: (atom: number) => boolean): number[][] {
-  const constitution = molecule.getCompactCopy();
-  assertAtomIndexesPreserved(molecule, constitution);
-  constitution.stripStereoInformation();
-  constitution.ensureHelperArrays(OCL.Molecule.cHelperSymmetrySimple);
-  const byRank = new Map<number, number[]>();
-  for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
-    if (!include(atom)) continue;
-    const rank = constitution.getSymmetryRank(atom);
-    const atoms = byRank.get(rank);
-    if (atoms) atoms.push(atom);
-    else byRank.set(rank, [atom]);
-  }
-  return [...byRank.values()];
-}
-
-/** OCL's canonical graph order supplies one stable traversal and one stable class representative,
- * while all public atom indices remain those of the input molecule. */
-function canonicalAtomOrder(molecule: OCL.Molecule): CanonicalAtomOrder {
-  const canonizer = new OCL.Canonizer(molecule);
-  const inputToCanonical = Array.from(canonizer.getGraphIndexes());
-  const canonical = canonizer.getCanMolecule(true);
-  canonical.ensureHelperArrays(OCL.Molecule.cHelperRings);
-
-  for (let atom = 0; atom < molecule.getAtoms(); atom += 1) {
-    const canonicalAtom = inputToCanonical[atom];
-    if (canonicalAtom === undefined || canonical.getAtomicNo(canonicalAtom) !== molecule.getAtomicNo(atom)) {
-      throw new Error("OpenChemLib canonicalization did not preserve the heavy-atom mapping.");
-    }
-  }
-  return { molecule: canonical, inputToCanonical };
-}
-
-function canonicalRepresentative(atoms: readonly number[], inputToCanonical: readonly number[]): number {
-  return atoms.reduce((best, atom) =>
-    inputToCanonical[atom] < inputToCanonical[best] ? atom : best
-  );
-}
-
-function assertAtomIndexesPreserved(source: OCL.Molecule, copy: OCL.Molecule): void {
-  if (source.getAllAtoms() !== copy.getAllAtoms() || source.getAllBonds() !== copy.getAllBonds()) {
-    throw new Error("OpenChemLib molecule copy changed the atom or bond count.");
-  }
-  for (let atom = 0; atom < source.getAllAtoms(); atom += 1) {
-    if (
-      source.getAtomicNo(atom) !== copy.getAtomicNo(atom) ||
-      source.getAtomCharge(atom) !== copy.getAtomCharge(atom) ||
-      source.getAtomMass(atom) !== copy.getAtomMass(atom)
-    ) {
-      throw new Error(`OpenChemLib molecule copy changed atom index ${atom}.`);
-    }
-  }
-  for (let bond = 0; bond < source.getAllBonds(); bond += 1) {
-    if (
-      source.getBondAtom(0, bond) !== copy.getBondAtom(0, bond) ||
-      source.getBondAtom(1, bond) !== copy.getBondAtom(1, bond) ||
-      source.getBondType(bond) !== copy.getBondType(bond)
-    ) {
-      throw new Error(`OpenChemLib molecule copy changed the atom indexing of bond ${bond}.`);
-    }
-  }
 }
 
 function dedupeNuclei(nuclei: readonly NmrNucleus[]): NmrNucleus[] {
