@@ -475,7 +475,7 @@ describe("measured accuracy in the database section (ADR-0026)", () => {
     const report = composePredictionReport(source, hoseResult);
     const body = textBodies(report);
     expect(body).toContain("Measured accuracy (¹³C)");
-    expect(body).toContain("median |Δ| 1.6 ppm");
+    expect(body).toContain("median |Δ| 1.57 ppm");
     expect(body).toContain("held-out benchmark, 2026-09-25");
     // The result has no ¹H resonance, so no ¹H accuracy claim is made.
     expect(body).not.toContain("Measured accuracy (¹H)");
