@@ -164,66 +164,49 @@ function predictCarbon(
   resonances: NmrResonance[],
   warnings: NmrPredictionWarning[]
 ): PredictionCounts {
-  const matched = new Map<string, { match: Match; atoms: number[] }>();
-  const unmatched = new Map<string, number[]>();
+  let estimated = 0;
+  let omitted = 0;
 
-  for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
-    if (molecule.getAtomicNo(atom) !== 6) continue;
-    const codes = atomEnvironmentCodes(molecule, atom, maxSpheres);
+  for (const atoms of symmetryClasses(molecule, (atom) => molecule.getAtomicNo(atom) === 6)) {
+    const representative = atoms[0];
+    const codes = atomEnvironmentCodes(molecule, representative, maxSpheres);
     const found = matchEnvironment(database, "13C", codes);
-    if (!found) {
-      pushGroup(unmatched, codes[codes.length - 1], atom);
+    if (found) {
+      resonances.push(
+        buildResonance(
+          "13C",
+          found,
+          statistic,
+          atoms,
+          atoms.length,
+          atoms.map(() => ({ element: "C", count: 1 })),
+          warnings
+        )
+      );
       continue;
     }
-    const group = matched.get(found.code) ?? { match: found, atoms: [] };
-    group.atoms.push(atom);
-    matched.set(found.code, group);
-  }
 
-  for (const group of matched.values()) {
-    resonances.push(
-      buildResonance(
-        "13C",
-        group.match,
-        statistic,
-        group.atoms,
-        group.atoms.length,
-        group.atoms.map(() => ({ element: "C", count: 1 })),
-        warnings
-      )
-    );
-  }
-
-  const estimatedGroups = new Map<string, { code: string; ppm: number; estimator: NmrEstimateProvenance; atoms: number[] }>();
-  let omitted = 0;
-  for (const [code, atoms] of unmatched) {
-    for (const atom of atoms) {
-      const estimate = estimateCarbonShiftWithApplicability(molecule, atom);
-      if (!estimate.applicable) {
-        omitted += 1;
-        warnOmitted(warnings, "13C", atom, code, estimate.reason);
-        continue;
-      }
-      const key = estimateGroupKey(code, estimate.ppm, estimate.estimator);
-      const group = estimatedGroups.get(key) ?? { code, ppm: estimate.ppm, estimator: estimate.estimator, atoms: [] };
-      group.atoms.push(atom);
-      estimatedGroups.set(key, group);
+    const code = codes[codes.length - 1];
+    const estimate = estimateCarbonShiftWithApplicability(molecule, representative);
+    if (!estimate.applicable) {
+      omitted += atoms.length;
+      warnOmitted(warnings, "13C", atoms, code, estimate.reason);
+      continue;
     }
-  }
-  for (const group of estimatedGroups.values()) {
+    estimated += 1;
     resonances.push(
       buildEstimatedResonance(
         "13C",
-        group.atoms,
-        group.atoms.length,
-        group.atoms.map(() => ({ element: "C", count: 1 })),
-        group.ppm,
-        group.code,
-        group.estimator
+        atoms,
+        atoms.length,
+        atoms.map(() => ({ element: "C", count: 1 })),
+        estimate.ppm,
+        code,
+        estimate.estimator
       )
     );
   }
-  return { estimated: estimatedGroups.size, omitted };
+  return { estimated, omitted };
 }
 
 function predictProton(
@@ -234,8 +217,8 @@ function predictProton(
   resonances: NmrResonance[],
   warnings: NmrPredictionWarning[]
 ): PredictionCounts {
-  const matched = new Map<string, { match: Match; atoms: number[]; protons: number[] }>();
-  const unmatched = new Map<string, number[]>();
+  let estimated = 0;
+  let omitted = 0;
   let omittedLabile = 0;
 
   const potentiallyDiastereotopic = potentiallyDiastereotopicMethyleneAtoms(molecule);
@@ -253,23 +236,57 @@ function predictProton(
     );
   }
 
-  for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
-    const protonCount = molecule.getAllHydrogens(atom);
-    if (protonCount === 0) continue;
-    if (LABILE_HYDROGEN_HOSTS.has(molecule.getAtomicNo(atom)) && request.options.ignoreLabileHydrogens) {
-      omittedLabile += protonCount;
+  for (const atoms of symmetryClasses(molecule, (atom) => molecule.getAllHydrogens(atom) > 0)) {
+    const representative = atoms[0];
+    const protonCounts = atoms.map((atom) => molecule.getAllHydrogens(atom));
+    if (
+      LABILE_HYDROGEN_HOSTS.has(molecule.getAtomicNo(representative)) &&
+      request.options.ignoreLabileHydrogens
+    ) {
+      omittedLabile += protonCounts.reduce((sum, count) => sum + count, 0);
       continue;
     }
-    const codes = atomEnvironmentCodes(molecule, atom, maxSpheres);
+    const codes = atomEnvironmentCodes(molecule, representative, maxSpheres);
     const found = matchEnvironment(database, "1H", codes);
-    if (!found) {
-      pushGroup(unmatched, codes[codes.length - 1], atom);
+    if (found) {
+      const multiplet = computeMultiplet(molecule, representative);
+      const crossCheck = protonCrossCheck(molecule, representative, found.entry, request.options.statistic);
+      resonances.push(
+        buildResonance(
+          "1H",
+          found,
+          request.options.statistic,
+          atoms,
+          protonCounts.reduce((sum, count) => sum + count, 0),
+          protonCounts.map((count) => ({ element: "H", count })),
+          warnings,
+          multiplet,
+          crossCheck
+        )
+      );
       continue;
     }
-    const group = matched.get(found.code) ?? { match: found, atoms: [], protons: [] };
-    group.atoms.push(atom);
-    group.protons.push(protonCount);
-    matched.set(found.code, group);
+
+    const code = codes[codes.length - 1];
+    const estimate = estimateProtonIncrement(molecule, representative);
+    if (!estimate.applicable) {
+      omitted += atoms.length;
+      warnOmitted(warnings, "1H", atoms, code, estimate.reason);
+      continue;
+    }
+    estimated += 1;
+    resonances.push(
+      buildEstimatedResonance(
+        "1H",
+        atoms,
+        protonCounts.reduce((sum, count) => sum + count, 0),
+        protonCounts.map((count) => ({ element: "H", count })),
+        estimate.ppm,
+        code,
+        estimate.estimator,
+        computeMultiplet(molecule, representative)
+      )
+    );
   }
 
   if (omittedLabile > 0) {
@@ -280,100 +297,7 @@ function predictProton(
     );
   }
 
-  for (const group of matched.values()) {
-    // A shallow HOSE code can group atoms whose longer-range substituents (and therefore additive
-    // estimates or coupling patterns) differ. Split on the derived per-atom data instead of borrowing
-    // `group.atoms[0]` for every atom in the group.
-    const subgroups = new Map<
-      string,
-      { atoms: number[]; protons: number[]; multiplet: NmrMultiplet; crossCheck?: NmrResonance["crossCheck"] }
-    >();
-    group.atoms.forEach((atom, index) => {
-      const multiplet = computeMultiplet(molecule, atom);
-      const crossCheck = protonCrossCheck(molecule, atom, group.match.entry, request.options.statistic);
-      const key = JSON.stringify({
-        protonCount: group.protons[index],
-        multiplet: multipletGroupingSignature(multiplet),
-        crossCheck
-      });
-      const subgroup = subgroups.get(key) ?? { atoms: [], protons: [], multiplet, crossCheck };
-      subgroup.atoms.push(atom);
-      subgroup.protons.push(group.protons[index]);
-      subgroups.set(key, subgroup);
-    });
-
-    for (const subgroup of subgroups.values()) {
-      resonances.push(
-        buildResonance(
-          "1H",
-          group.match,
-          request.options.statistic,
-          subgroup.atoms,
-          subgroup.protons.reduce((sum, count) => sum + count, 0),
-          subgroup.protons.map((count) => ({ element: "H", count })),
-          warnings,
-          subgroup.multiplet,
-          subgroup.crossCheck
-        )
-      );
-    }
-  }
-
-  const estimatedGroups = new Map<
-    string,
-    {
-      code: string;
-      ppm: number;
-      estimator: NmrEstimateProvenance;
-      atoms: number[];
-      protons: number[];
-      multiplet: NmrMultiplet;
-    }
-  >();
-  let omitted = 0;
-  for (const [code, atoms] of unmatched) {
-    for (const atom of atoms) {
-      const estimate = estimateProtonIncrement(molecule, atom);
-      if (!estimate.applicable) {
-        omitted += 1;
-        warnOmitted(warnings, "1H", atom, code, estimate.reason);
-        continue;
-      }
-      const protonCount = molecule.getAllHydrogens(atom);
-      const multiplet = computeMultiplet(molecule, atom);
-      const key = JSON.stringify({
-        estimate: estimateGroupKey(code, estimate.ppm, estimate.estimator),
-        protonCount,
-        multiplet: multipletGroupingSignature(multiplet)
-      });
-      const group = estimatedGroups.get(key) ?? {
-        code,
-        ppm: estimate.ppm,
-        estimator: estimate.estimator,
-        atoms: [],
-        protons: [],
-        multiplet
-      };
-      group.atoms.push(atom);
-      group.protons.push(protonCount);
-      estimatedGroups.set(key, group);
-    }
-  }
-  for (const group of estimatedGroups.values()) {
-    resonances.push(
-      buildEstimatedResonance(
-        "1H",
-        group.atoms,
-        group.protons.reduce((sum, count) => sum + count, 0),
-        group.protons.map((count) => ({ element: "H", count })),
-        group.ppm,
-        group.code,
-        group.estimator,
-        group.multiplet
-      )
-    );
-  }
-  return { estimated: estimatedGroups.size, omitted };
+  return { estimated, omitted };
 }
 
 /** Independent additive comparison. Applicability determines whether a value is available; the
@@ -509,17 +433,19 @@ function buildEstimatedResonance(
 function warnOmitted(
   warnings: NmrPredictionWarning[],
   nucleus: NmrNucleus,
-  atom: number,
+  atoms: readonly number[],
   code: string,
   reason: string
 ): void {
   warnings.push(
     nmrWarning(
       NmrWarningCodes.NoFragmentMatch,
-      `No ${nucleus} database match or applicable rule estimate for atom ${atom}; the resonance was omitted (${reason}).`,
+      `No ${nucleus} database match or applicable rule estimate for atom${atoms.length === 1 ? "" : "s"} ${atoms.join(
+        ", "
+      )}; the resonance was omitted (${reason}).`,
       {
         severity: "warning",
-        atomIndices: [atom],
+        atomIndices: [...atoms],
         details: { nucleus, environmentCode: code, estimateInapplicableReason: reason }
       }
     )
@@ -530,24 +456,23 @@ export function shiftFor(entry: NmrDatabaseEntry, statistic: Statistic): number 
   return statistic === "mean" ? entry.mean : entry.median;
 }
 
-function estimateGroupKey(code: string, ppm: number, estimator: NmrEstimateProvenance): string {
-  return JSON.stringify({ code, ppm: round2(ppm), estimator });
-}
-
-/** Coupling partner indices identify representative atoms, not distinct spectral patterns. Exclude
- * them when grouping equivalent environments so symmetric atoms such as ethane's two carbons remain
- * one six-proton resonance while genuinely different J/kind/count patterns still split. */
-function multipletGroupingSignature(multiplet: NmrMultiplet): unknown {
-  return {
-    label: multiplet.label,
-    couplings: multiplet.couplings.map(({ jHz, partnerCount, kind }) => ({ jHz, partnerCount, kind }))
-  };
-}
-
-function pushGroup(groups: Map<string, number[]>, key: string, atom: number): void {
-  const existing = groups.get(key);
-  if (existing) existing.push(atom);
-  else groups.set(key, [atom]);
+/**
+ * OpenChemLib's stereoheterotopic symmetry ranks are the equivalence boundary for resonances.
+ * Keeping this on the normalized molecule preserves the atom indices used by atomRefs/depiction.
+ * Per-class shift, evidence, multiplet, and cross-check data are derived once from the lowest-index
+ * representative, so traversal-order differences in local environment codes cannot split a class.
+ */
+function symmetryClasses(molecule: OCL.Molecule, include: (atom: number) => boolean): number[][] {
+  molecule.ensureHelperArrays(OCL.Molecule.cHelperSymmetryStereoHeterotopicity);
+  const byRank = new Map<number, number[]>();
+  for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
+    if (!include(atom)) continue;
+    const rank = molecule.getSymmetryRank(atom);
+    const atoms = byRank.get(rank);
+    if (atoms) atoms.push(atom);
+    else byRank.set(rank, [atom]);
+  }
+  return [...byRank.values()];
 }
 
 function dedupeNuclei(nuclei: readonly NmrNucleus[]): NmrNucleus[] {

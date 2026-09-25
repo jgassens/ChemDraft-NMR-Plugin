@@ -7,11 +7,11 @@ function resonance(deltaPpm: number, equivalentNuclei = 1): NmrResonance {
   return { id: `c-${deltaPpm}`, nucleus: "13C", deltaPpm, atomRefs: [], equivalentNuclei, flags: [] };
 }
 
-function result(resonances: NmrResonance[]): NmrPredictionResult {
+function result(resonances: NmrResonance[], method = "fixture-fragment"): NmrPredictionResult {
   return {
     schemaVersion: "1",
     sourceFingerprint: "fp",
-    backend: { id: "x", version: "1", method: "fixture-fragment" },
+    backend: { id: "x", version: "1", method },
     resonances,
     warnings: [],
     generatedAt: "t"
@@ -44,5 +44,13 @@ describe("renderStickSpectrumSvg", () => {
   it("does not throw for an empty spectrum", () => {
     expect(() => renderStickSpectrumSvg(result([]))).not.toThrow();
     expect(stickXs(renderStickSpectrumSvg(result([])))).toHaveLength(0);
+  });
+
+  it("labels only fixture-provider spectra as synthetic", () => {
+    expect(renderStickSpectrumSvg(result([resonance(128.5)]))).toContain("¹³C δ (ppm) — synthetic fixture");
+
+    const predicted = renderStickSpectrumSvg(result([resonance(128.5)], "hose-fragment"));
+    expect(predicted).toContain("¹³C δ (ppm) — predicted");
+    expect(predicted).not.toContain("synthetic fixture");
   });
 });

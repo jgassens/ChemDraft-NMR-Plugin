@@ -86,7 +86,75 @@ function predict(
   });
 }
 
+function predictMolfile(predictor: OclHosePredictor, smiles: string, nucleus: NmrNucleus) {
+  return predictor.predict({
+    structure: { format: "molfile-v2000", value: OCL.Molecule.fromSmiles(smiles).toMolfile() },
+    nuclei: [nucleus],
+    options: OPTIONS
+  });
+}
+
+function expectedSymmetryClasses(smiles: string, nucleus: NmrNucleus): Map<string, number> {
+  // Parse the generated molfile exactly as the predictor does, so these expected source indices also
+  // verify that symmetry ranks and emitted atomRefs use the same normalized molecule ordering.
+  const molecule = OCL.Molecule.fromMolfile(OCL.Molecule.fromSmiles(smiles).toMolfile());
+  molecule.ensureHelperArrays(OCL.Molecule.cHelperSymmetryStereoHeterotopicity);
+  const byRank = new Map<number, number[]>();
+  for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
+    const isCarbon = nucleus === "13C" && molecule.getAtomicNo(atom) === 6;
+    const isNonLabileProtonHost =
+      nucleus === "1H" && molecule.getAllHydrogens(atom) > 0 && ![7, 8, 16].includes(molecule.getAtomicNo(atom));
+    if (!isCarbon && !isNonLabileProtonHost) continue;
+    const rank = molecule.getSymmetryRank(atom);
+    byRank.set(rank, [...(byRank.get(rank) ?? []), atom]);
+  }
+
+  return new Map(
+    [...byRank.values()].map((atoms) => [
+      [...atoms].sort((a, b) => a - b).join(","),
+      nucleus === "13C"
+        ? atoms.length
+        : atoms.reduce((sum, atom) => sum + molecule.getAllHydrogens(atom), 0)
+    ])
+  );
+}
+
+function resonanceClasses(result: Awaited<ReturnType<typeof predictMolfile>>): Map<string, number> {
+  return new Map(
+    result.resonances.map((resonance) => [
+      resonance.atomRefs
+        .map((ref) => ref.sourceAtomIndex)
+        .sort((a, b) => a - b)
+        .join(","),
+      resonance.equivalentNuclei ?? 0
+    ])
+  );
+}
+
 describe("OclHosePredictor", () => {
+  it.each([
+    ["toluene", "Cc1ccccc1", "13C", 5, [1, 1, 1, 2, 2]],
+    ["toluene", "Cc1ccccc1", "1H", 4, [1, 2, 2, 3]],
+    ["p-xylene", "Cc1ccc(C)cc1", "13C", 3, [2, 2, 4]],
+    ["p-xylene", "Cc1ccc(C)cc1", "1H", 2, [4, 6]],
+    ["ethanol", "CCO", "13C", 2, [1, 1]],
+    ["ethanol", "CCO", "1H", 2, [2, 3]]
+  ] as const)(
+    "groups %s %s molfile atoms by OCL topological symmetry",
+    async (_name, smiles, nucleus, environmentCount, equivalentCounts) => {
+      const result = await predictMolfile(new OclHosePredictor({ now: () => "t" }), smiles, nucleus);
+
+      expect(result.resonances).toHaveLength(environmentCount);
+      expect(resonanceClasses(result)).toEqual(expectedSymmetryClasses(smiles, nucleus));
+      expect(result.resonances.map((resonance) => resonance.equivalentNuclei).sort((a, b) => (a ?? 0) - (b ?? 0))).toEqual(
+        equivalentCounts
+      );
+      if (smiles === "CCO" && nucleus === "1H") {
+        expect(result.warnings.map((warning) => warning.code)).toContain("NMR_LABILE_PROTON_OMITTED");
+      }
+    }
+  );
+
   it("round-trips a built database: querying the training molecule returns its shifts", async () => {
     const compiled = buildNmrDatabase(
       makeSd("CCC", [

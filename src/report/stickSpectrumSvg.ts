@@ -10,7 +10,7 @@ export interface StickSpectrumOptions {
  * plot background, explicit colors, no CSS variables or script) because the desktop renders panel SVGs
  * through an `<img>` data URL — an isolated context that neither inherits page theme nor executes
  * script. The ppm axis is reversed (high → low, left → right) per NMR convention; stick height scales
- * with the predicted equivalent-nuclei count. Synthetic fixture data, labeled as such.
+ * with the predicted equivalent-nuclei count. Fixture results are explicitly labeled as synthetic.
  */
 export function renderStickSpectrumSvg(result: NmrPredictionResult, options: StickSpectrumOptions = {}): string {
   const width = options.width ?? 640;
@@ -50,7 +50,8 @@ export function renderStickSpectrumSvg(result: NmrPredictionResult, options: Sti
     })
     .join("");
 
-  const axisLabel = `${nucleus === "13C" ? "¹³C" : "¹H"} δ (ppm) — synthetic fixture`;
+  const sourceLabel = result.backend.method === "fixture-fragment" ? "synthetic fixture" : "predicted";
+  const axisLabel = `${nucleus === "13C" ? "¹³C" : "¹H"} δ (ppm) — ${sourceLabel}`;
 
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" ` +
