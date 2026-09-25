@@ -14,7 +14,8 @@ export const NmrWarningCodes = {
   SmallReferencePopulation: "NMR_SMALL_REFERENCE_POPULATION",
   PartialPrediction: "NMR_PARTIAL_PREDICTION",
   RuleEstimated: "NMR_RULE_ESTIMATED",
-  PotentiallyDiastereotopicHydrogens: "NMR_POTENTIALLY_DIASTEREOTOPIC_HYDROGENS"
+  PotentiallyDiastereotopicHydrogens: "NMR_POTENTIALLY_DIASTEREOTOPIC_HYDROGENS",
+  PotentiallyDiastereotopicMethyls: "NMR_POTENTIALLY_DIASTEREOTOPIC_METHYLS"
 } as const;
 
 export type NmrWarningCode = (typeof NmrWarningCodes)[keyof typeof NmrWarningCodes];

@@ -28,6 +28,8 @@ export interface SplitOptions {
   seed: number;
 }
 
+const structureIdcodeCache = new WeakMap<NmredataRecord, string | null>();
+
 /** Deterministic, seed-stable FNV-1a — no RNG, so a rerun reproduces the exact split. */
 export function structureBucket(idcode: string, seed: number): number {
   let hash = 0x811c9dc5;
@@ -44,14 +46,17 @@ export function splitCorpusByStructure(records: readonly NmredataRecord[], optio
   const heldOut: NmredataRecord[] = [];
   let unparseable = 0;
   for (const record of records) {
-    let idcode: string | undefined;
-    try {
-      const molecule = OCL.Molecule.fromMolfile(record.molfile);
-      idcode = molecule.getAllAtoms() > 0 ? molecule.getIDCode() : undefined;
-    } catch {
-      idcode = undefined;
-    }
+    let idcode = structureIdcodeCache.get(record);
     if (idcode === undefined) {
+      try {
+        const molecule = OCL.Molecule.fromMolfile(record.molfile);
+        idcode = molecule.getAllAtoms() > 0 ? molecule.getIDCode() : null;
+      } catch {
+        idcode = null;
+      }
+      structureIdcodeCache.set(record, idcode);
+    }
+    if (idcode === null) {
       unparseable += 1;
       train.push(record);
       continue;

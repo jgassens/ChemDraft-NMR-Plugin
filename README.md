@@ -96,7 +96,11 @@ tree.
   HOSE value remains the stored primary value; the panel always shows the
   HOSE/increment comparison state and reports exact coverage. In stereogenic
   structures, potentially nonequivalent CH₂ hydrogens receive a disclosure rather
-  than fabricated separate shifts.
+  than fabricated separate shifts. Constitutionally equivalent geminal methyl
+  pairs next to a carbon bearing exactly two methyl substituents are likewise
+  disclosed for both ¹H and ¹³C when the structure contains a stereocenter; the
+  model keeps one shift per pair and does not fabricate separate diastereotopic
+  values. Three-methyl tert-butyl groups are excluded from this warning.
 - **Fixture** — deterministic synthetic data; used for tests and as an offline /
   no-`Worker` fallback.
 

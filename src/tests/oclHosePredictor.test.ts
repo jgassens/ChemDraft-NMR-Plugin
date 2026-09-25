@@ -94,31 +94,6 @@ function predictMolfile(predictor: OclHosePredictor, smiles: string, nucleus: Nm
   });
 }
 
-function expectedSymmetryClasses(smiles: string, nucleus: NmrNucleus): Map<string, number> {
-  // Parse the generated molfile exactly as the predictor does, so these expected source indices also
-  // verify that symmetry ranks and emitted atomRefs use the same normalized molecule ordering.
-  const molecule = OCL.Molecule.fromMolfile(OCL.Molecule.fromSmiles(smiles).toMolfile());
-  molecule.ensureHelperArrays(OCL.Molecule.cHelperSymmetryStereoHeterotopicity);
-  const byRank = new Map<number, number[]>();
-  for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
-    const isCarbon = nucleus === "13C" && molecule.getAtomicNo(atom) === 6;
-    const isNonLabileProtonHost =
-      nucleus === "1H" && molecule.getAllHydrogens(atom) > 0 && ![7, 8, 16].includes(molecule.getAtomicNo(atom));
-    if (!isCarbon && !isNonLabileProtonHost) continue;
-    const rank = molecule.getSymmetryRank(atom);
-    byRank.set(rank, [...(byRank.get(rank) ?? []), atom]);
-  }
-
-  return new Map(
-    [...byRank.values()].map((atoms) => [
-      [...atoms].sort((a, b) => a - b).join(","),
-      nucleus === "13C"
-        ? atoms.length
-        : atoms.reduce((sum, atom) => sum + molecule.getAllHydrogens(atom), 0)
-    ])
-  );
-}
-
 function resonanceClasses(result: Awaited<ReturnType<typeof predictMolfile>>): Map<string, number> {
   return new Map(
     result.resonances.map((resonance) => [
@@ -132,28 +107,52 @@ function resonanceClasses(result: Awaited<ReturnType<typeof predictMolfile>>): M
 }
 
 describe("OclHosePredictor", () => {
+  // Atom sets below are hard-coded from the molfile order and the molecular constitution; they do
+  // not call the OCL symmetry API used by the implementation.
   it.each([
-    ["toluene", "Cc1ccccc1", "13C", 5, [1, 1, 1, 2, 2]],
-    ["toluene", "Cc1ccccc1", "1H", 4, [1, 2, 2, 3]],
-    ["p-xylene", "Cc1ccc(C)cc1", "13C", 3, [2, 2, 4]],
-    ["p-xylene", "Cc1ccc(C)cc1", "1H", 2, [4, 6]],
-    ["ethanol", "CCO", "13C", 2, [1, 1]],
-    ["ethanol", "CCO", "1H", 2, [2, 3]]
+    ["toluene", "Cc1ccccc1", "13C", [[[0], 1], [[1], 1], [[2, 6], 2], [[3, 5], 2], [[4], 1]]],
+    ["toluene", "Cc1ccccc1", "1H", [[[0], 3], [[2, 6], 2], [[3, 5], 2], [[4], 1]]],
+    ["p-xylene", "Cc1ccc(C)cc1", "13C", [[[0, 5], 2], [[1, 4], 2], [[2, 3, 6, 7], 4]]],
+    ["p-xylene", "Cc1ccc(C)cc1", "1H", [[[0, 5], 6], [[2, 3, 6, 7], 4]]],
+    ["ethanol", "CCO", "13C", [[[0], 1], [[1], 1]]],
+    ["ethanol", "CCO", "1H", [[[0], 3], [[1], 2]]],
+    ["(R,R)-2,3-dibromobutane", "C[C@H](Br)[C@H](Br)C", "13C", [[[0, 5], 2], [[1, 3], 2]]],
+    ["(R,R)-2,3-dibromobutane", "C[C@H](Br)[C@H](Br)C", "1H", [[[0, 5], 6], [[1, 3], 2]]],
+    ["meso-2,3-dibromobutane", "C[C@H](Br)[C@@H](Br)C", "13C", [[[0, 5], 2], [[1, 3], 2]]],
+    ["meso-2,3-dibromobutane", "C[C@H](Br)[C@@H](Br)C", "1H", [[[0, 5], 6], [[1, 3], 2]]],
+    ["(2R,3R)-tartaric acid", "O=C(O)[C@H](O)[C@H](O)C(=O)O", "13C", [[[1, 7], 2], [[3, 5], 2]]],
+    ["trans-1,2-dimethylcyclopropane", "C[C@H]1C[C@H]1C", "13C", [[[0, 4], 2], [[1, 3], 2], [[2], 1]]],
+    ["naphthalene", "c1ccc2ccccc2c1", "13C", [[[0, 1, 5, 6], 4], [[2, 4, 7, 9], 4], [[3, 8], 2]]]
   ] as const)(
-    "groups %s %s molfile atoms by OCL topological symmetry",
-    async (_name, smiles, nucleus, environmentCount, equivalentCounts) => {
+    "groups %s %s molfile atoms into hard-coded constitutional classes",
+    async (_name, smiles, nucleus, expectedClasses) => {
       const result = await predictMolfile(new OclHosePredictor({ now: () => "t" }), smiles, nucleus);
+      const expected = new Map(
+        expectedClasses.map(([atoms, nEquivalent]) => [atoms.join(","), nEquivalent])
+      );
 
-      expect(result.resonances).toHaveLength(environmentCount);
-      expect(resonanceClasses(result)).toEqual(expectedSymmetryClasses(smiles, nucleus));
+      expect(result.resonances).toHaveLength(expectedClasses.length);
+      expect(resonanceClasses(result)).toEqual(expected);
       expect(result.resonances.map((resonance) => resonance.equivalentNuclei).sort((a, b) => (a ?? 0) - (b ?? 0))).toEqual(
-        equivalentCounts
+        [...expectedClasses].map(([, nEquivalent]) => nEquivalent).sort((a, b) => a - b)
       );
       if (smiles === "CCO" && nucleus === "1H") {
         expect(result.warnings.map((warning) => warning.code)).toContain("NMR_LABILE_PROTON_OMITTED");
       }
     }
   );
+
+  it("gives naphthalene the same shifts and integrations for different input atom orders", async () => {
+    const predictor = new OclHosePredictor({ now: () => "t" });
+    const first = await predictMolfile(predictor, "c1ccc2ccccc2c1", "13C");
+    const second = await predictMolfile(predictor, "c1cc2ccccc2cc1", "13C");
+    const sortedShifts = (result: typeof first) =>
+      result.resonances
+        .map((resonance) => [resonance.deltaPpm, resonance.equivalentNuclei] as const)
+        .sort(([firstPpm], [secondPpm]) => firstPpm - secondPpm);
+
+    expect(sortedShifts(first)).toEqual(sortedShifts(second));
+  });
 
   it("round-trips a built database: querying the training molecule returns its shifts", async () => {
     const compiled = buildNmrDatabase(
@@ -360,6 +359,46 @@ describe("OclHosePredictor", () => {
     const result = await predict(new OclHosePredictor({ database: databaseAtSphere("CCO", "1H", 2) }), "CCO", "1H");
     expect(result.warnings.map((warning) => warning.code)).not.toContain(
       "NMR_POTENTIALLY_DIASTEREOTOPIC_HYDROGENS"
+    );
+  });
+
+  it.each([
+    ["stereo-annotated", "C[C@@H](O)C(C)C"],
+    ["racemic", "CC(O)C(C)C"]
+  ])("warns once per nucleus for %s potentially diastereotopic geminal methyls", async (_name, smiles) => {
+    const result = await new OclHosePredictor({ now: () => "t" }).predict({
+      structure: { format: "molfile-v2000", value: OCL.Molecule.fromSmiles(smiles).toMolfile() },
+      nuclei: ["13C", "1H"],
+      options: OPTIONS
+    });
+    const warnings = result.warnings.filter(
+      (warning) => warning.code === "NMR_POTENTIALLY_DIASTEREOTOPIC_METHYLS"
+    );
+
+    expect(warnings).toHaveLength(2);
+    expect(() => NmrPredictionResultSchema.parse(result)).not.toThrow();
+    expect(warnings.map((warning) => warning.details?.nucleus).sort()).toEqual(["13C", "1H"]);
+    for (const warning of warnings) {
+      expect(warning.severity).toBe("info");
+      expect(warning.atomIndices).toEqual([4, 5]);
+      expect(warning.details?.methylPairCount).toBe(1);
+      expect(warning.message).toContain("does not predict separate diastereotopic values");
+    }
+  });
+
+  it.each([
+    ["2-methylpropane", "CC(C)C"],
+    ["tert-butanol", "CC(C)(C)O"],
+    ["achiral isopropanol", "CC(C)O"]
+  ])("does not warn for %s methyls", async (_name, smiles) => {
+    const result = await new OclHosePredictor({ now: () => "t" }).predict({
+      structure: { format: "molfile-v2000", value: OCL.Molecule.fromSmiles(smiles).toMolfile() },
+      nuclei: ["13C", "1H"],
+      options: OPTIONS
+    });
+
+    expect(result.warnings.map((warning) => warning.code)).not.toContain(
+      "NMR_POTENTIALLY_DIASTEREOTOPIC_METHYLS"
     );
   });
 

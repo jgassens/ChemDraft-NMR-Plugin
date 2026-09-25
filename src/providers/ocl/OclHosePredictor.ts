@@ -42,6 +42,11 @@ interface PredictionCounts {
   omitted: number;
 }
 
+interface CanonicalAtomOrder {
+  molecule: OCL.Molecule;
+  inputToCanonical: readonly number[];
+}
+
 type Statistic = NmrPredictionOptions["statistic"];
 
 /**
@@ -91,15 +96,26 @@ export class OclHosePredictor implements NmrPredictor {
     const warnings: NmrPredictionWarning[] = [...normalized.warnings];
     const resonances: NmrResonance[] = [];
     const totals: PredictionCounts = { estimated: 0, omitted: 0 };
+    const canonicalOrder = canonicalAtomOrder(molecule);
 
     for (const nucleus of dedupeNuclei(request.nuclei)) {
       throwIfAborted(signal);
+      const resonanceStart = resonances.length;
       const counts =
         nucleus === "13C"
-          ? predictCarbon(this.database, molecule, request.options.statistic, maxSpheres, resonances, warnings)
-          : predictProton(this.database, molecule, request, maxSpheres, resonances, warnings);
+          ? predictCarbon(
+              this.database,
+              molecule,
+              canonicalOrder,
+              request.options.statistic,
+              maxSpheres,
+              resonances,
+              warnings
+            )
+          : predictProton(this.database, molecule, canonicalOrder, request, maxSpheres, resonances, warnings);
       totals.estimated += counts.estimated;
       totals.omitted += counts.omitted;
+      warnPotentiallyDiastereotopicMethyls(molecule, nucleus, resonances.slice(resonanceStart), warnings);
     }
 
     if (totals.estimated > 0) {
@@ -159,6 +175,7 @@ export function matchEnvironment(
 function predictCarbon(
   database: CompiledNmrDatabase,
   molecule: OCL.Molecule,
+  canonicalOrder: CanonicalAtomOrder,
   statistic: Statistic,
   maxSpheres: number,
   resonances: NmrResonance[],
@@ -168,8 +185,12 @@ function predictCarbon(
   let omitted = 0;
 
   for (const atoms of symmetryClasses(molecule, (atom) => molecule.getAtomicNo(atom) === 6)) {
-    const representative = atoms[0];
-    const codes = atomEnvironmentCodes(molecule, representative, maxSpheres);
+    const representative = canonicalRepresentative(atoms, canonicalOrder.inputToCanonical);
+    const codes = atomEnvironmentCodes(
+      canonicalOrder.molecule,
+      canonicalOrder.inputToCanonical[representative],
+      maxSpheres
+    );
     const found = matchEnvironment(database, "13C", codes);
     if (found) {
       resonances.push(
@@ -212,6 +233,7 @@ function predictCarbon(
 function predictProton(
   database: CompiledNmrDatabase,
   molecule: OCL.Molecule,
+  canonicalOrder: CanonicalAtomOrder,
   request: NmrPredictionRequest,
   maxSpheres: number,
   resonances: NmrResonance[],
@@ -237,7 +259,7 @@ function predictProton(
   }
 
   for (const atoms of symmetryClasses(molecule, (atom) => molecule.getAllHydrogens(atom) > 0)) {
-    const representative = atoms[0];
+    const representative = canonicalRepresentative(atoms, canonicalOrder.inputToCanonical);
     const protonCounts = atoms.map((atom) => molecule.getAllHydrogens(atom));
     if (
       LABILE_HYDROGEN_HOSTS.has(molecule.getAtomicNo(representative)) &&
@@ -246,7 +268,11 @@ function predictProton(
       omittedLabile += protonCounts.reduce((sum, count) => sum + count, 0);
       continue;
     }
-    const codes = atomEnvironmentCodes(molecule, representative, maxSpheres);
+    const codes = atomEnvironmentCodes(
+      canonicalOrder.molecule,
+      canonicalOrder.inputToCanonical[representative],
+      maxSpheres
+    );
     const found = matchEnvironment(database, "1H", codes);
     if (found) {
       const multiplet = computeMultiplet(molecule, representative);
@@ -334,15 +360,7 @@ function protonCrossCheckReason(
 /** A CH₂ group in a constitutionally stereogenic molecule may contain a diastereotopic proton pair.
  * This is a disclosure detector only: it never splits the host or fabricates two shifts. */
 function potentiallyDiastereotopicMethyleneAtoms(molecule: OCL.Molecule): number[] {
-  molecule.ensureHelperArrays(OCL.Molecule.cHelperCIP);
-  let hasStereoCenter = false;
-  for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
-    if (molecule.isAtomStereoCenter(atom)) {
-      hasStereoCenter = true;
-      break;
-    }
-  }
-  if (!hasStereoCenter) return [];
+  if (!hasStereoCenter(molecule)) return [];
 
   const methylenes: number[] = [];
   for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
@@ -351,6 +369,64 @@ function potentiallyDiastereotopicMethyleneAtoms(molecule: OCL.Molecule): number
     }
   }
   return methylenes;
+}
+
+/** A geminal pair of constitutionally equivalent methyls may be diastereotopic when another
+ * stereocenter is present. This disclosure follows emitted classes and never splits a class. */
+function warnPotentiallyDiastereotopicMethyls(
+  molecule: OCL.Molecule,
+  nucleus: NmrNucleus,
+  resonances: readonly NmrResonance[],
+  warnings: NmrPredictionWarning[]
+): void {
+  if (!hasStereoCenter(molecule)) return;
+
+  const emittedClassByAtom = new Map<number, number>();
+  resonances.forEach((resonance, classIndex) => {
+    for (const ref of resonance.atomRefs) emittedClassByAtom.set(ref.sourceAtomIndex, classIndex);
+  });
+
+  const methylAtoms = new Set<number>();
+  let methylPairCount = 0;
+  for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
+    if (molecule.getAtomicNo(atom) !== 6) continue;
+    const methylNeighbors: number[] = [];
+    for (let connection = 0; connection < molecule.getConnAtoms(atom); connection += 1) {
+      const neighbor = molecule.getConnAtom(atom, connection);
+      if (molecule.getAtomicNo(neighbor) === 6 && molecule.getAllHydrogens(neighbor) === 3) {
+        methylNeighbors.push(neighbor);
+      }
+    }
+    // Exactly two excludes tert-butyl groups, whose three methyls interconvert by rotation.
+    if (methylNeighbors.length !== 2) continue;
+    const [first, second] = methylNeighbors;
+    const emittedClass = emittedClassByAtom.get(first);
+    if (emittedClass === undefined || emittedClass !== emittedClassByAtom.get(second)) continue;
+    methylPairCount += 1;
+    methylAtoms.add(first);
+    methylAtoms.add(second);
+  }
+
+  if (methylPairCount === 0) return;
+  warnings.push(
+    nmrWarning(
+      NmrWarningCodes.PotentiallyDiastereotopicMethyls,
+      "These methyl pairs may be chemically nonequivalent; this model reports one shift per pair and does not predict separate diastereotopic values.",
+      {
+        severity: "info",
+        atomIndices: [...methylAtoms].sort((a, b) => a - b),
+        details: { nucleus, methylPairCount }
+      }
+    )
+  );
+}
+
+function hasStereoCenter(molecule: OCL.Molecule): boolean {
+  molecule.ensureHelperArrays(OCL.Molecule.cHelperCIP);
+  for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
+    if (molecule.isAtomStereoCenter(atom)) return true;
+  }
+  return false;
 }
 
 function buildResonance(
@@ -456,23 +532,71 @@ export function shiftFor(entry: NmrDatabaseEntry, statistic: Statistic): number 
   return statistic === "mean" ? entry.mean : entry.median;
 }
 
-/**
- * OpenChemLib's stereoheterotopic symmetry ranks are the equivalence boundary for resonances.
- * Keeping this on the normalized molecule preserves the atom indices used by atomRefs/depiction.
- * Per-class shift, evidence, multiplet, and cross-check data are derived once from the lowest-index
- * representative, so traversal-order differences in local environment codes cannot split a class.
- */
+/** Constitutionally equivalent atoms are isochronous unless a stereogenic environment makes them
+ * diastereotopic. The model does not predict separate diastereotopic values, so symmetry is computed
+ * after removing stereo from an index-preserving copy. The live molecule retains its stereo data for
+ * warnings, fallback chemistry, multiplets, cross-checks, atomRefs, and depiction. */
 function symmetryClasses(molecule: OCL.Molecule, include: (atom: number) => boolean): number[][] {
-  molecule.ensureHelperArrays(OCL.Molecule.cHelperSymmetryStereoHeterotopicity);
+  const constitution = molecule.getCompactCopy();
+  assertAtomIndexesPreserved(molecule, constitution);
+  constitution.stripStereoInformation();
+  constitution.ensureHelperArrays(OCL.Molecule.cHelperSymmetrySimple);
   const byRank = new Map<number, number[]>();
   for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
     if (!include(atom)) continue;
-    const rank = molecule.getSymmetryRank(atom);
+    const rank = constitution.getSymmetryRank(atom);
     const atoms = byRank.get(rank);
     if (atoms) atoms.push(atom);
     else byRank.set(rank, [atom]);
   }
   return [...byRank.values()];
+}
+
+/** OCL's canonical graph order supplies one stable traversal and one stable class representative,
+ * while all public atom indices remain those of the input molecule. */
+function canonicalAtomOrder(molecule: OCL.Molecule): CanonicalAtomOrder {
+  const canonizer = new OCL.Canonizer(molecule);
+  const inputToCanonical = Array.from(canonizer.getGraphIndexes());
+  const canonical = canonizer.getCanMolecule(true);
+  canonical.ensureHelperArrays(OCL.Molecule.cHelperRings);
+
+  for (let atom = 0; atom < molecule.getAtoms(); atom += 1) {
+    const canonicalAtom = inputToCanonical[atom];
+    if (canonicalAtom === undefined || canonical.getAtomicNo(canonicalAtom) !== molecule.getAtomicNo(atom)) {
+      throw new Error("OpenChemLib canonicalization did not preserve the heavy-atom mapping.");
+    }
+  }
+  return { molecule: canonical, inputToCanonical };
+}
+
+function canonicalRepresentative(atoms: readonly number[], inputToCanonical: readonly number[]): number {
+  return atoms.reduce((best, atom) =>
+    inputToCanonical[atom] < inputToCanonical[best] ? atom : best
+  );
+}
+
+function assertAtomIndexesPreserved(source: OCL.Molecule, copy: OCL.Molecule): void {
+  if (source.getAllAtoms() !== copy.getAllAtoms() || source.getAllBonds() !== copy.getAllBonds()) {
+    throw new Error("OpenChemLib molecule copy changed the atom or bond count.");
+  }
+  for (let atom = 0; atom < source.getAllAtoms(); atom += 1) {
+    if (
+      source.getAtomicNo(atom) !== copy.getAtomicNo(atom) ||
+      source.getAtomCharge(atom) !== copy.getAtomCharge(atom) ||
+      source.getAtomMass(atom) !== copy.getAtomMass(atom)
+    ) {
+      throw new Error(`OpenChemLib molecule copy changed atom index ${atom}.`);
+    }
+  }
+  for (let bond = 0; bond < source.getAllBonds(); bond += 1) {
+    if (
+      source.getBondAtom(0, bond) !== copy.getBondAtom(0, bond) ||
+      source.getBondAtom(1, bond) !== copy.getBondAtom(1, bond) ||
+      source.getBondType(bond) !== copy.getBondType(bond)
+    ) {
+      throw new Error(`OpenChemLib molecule copy changed the atom indexing of bond ${bond}.`);
+    }
+  }
 }
 
 function dedupeNuclei(nuclei: readonly NmrNucleus[]): NmrNucleus[] {
