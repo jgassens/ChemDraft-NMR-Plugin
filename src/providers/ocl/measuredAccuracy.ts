@@ -36,7 +36,7 @@ export interface MeasuredAccuracy {
 
 export const MEASURED_ACCURACY: MeasuredAccuracy = {
   corpusSha256: "831a31e78b004a308c7c40989e27d30698a34c506e722a91c78b6ed448fc4720",
-  benchmarkDate: "2026-07-12",
+  benchmarkDate: "2026-09-25",
   seed: 1,
   holdOutPerMille: 20,
   nuclei: {
@@ -45,10 +45,10 @@ export const MEASURED_ACCURACY: MeasuredAccuracy = {
       matched: 2491,
       coverage: 0.991,
       structures: 375,
-      hose: { count: 2491, mae: 0.358, medianAe: 0.17, p90Ae: 0.93 },
+      hose: { count: 2491, mae: 0.358, medianAe: 0.177, p90Ae: 0.93 },
       byTier: {
-        high: { count: 820, mae: 0.183, medianAe: 0.079, p90Ae: 0.47 },
-        medium: { count: 1162, mae: 0.337, medianAe: 0.17, p90Ae: 0.77 },
+        high: { count: 823, mae: 0.183, medianAe: 0.078, p90Ae: 0.48 },
+        medium: { count: 1159, mae: 0.338, medianAe: 0.17, p90Ae: 0.77 },
         low: { count: 509, mae: 0.685, medianAe: 0.48, p90Ae: 1.51 }
       }
     },
@@ -57,10 +57,10 @@ export const MEASURED_ACCURACY: MeasuredAccuracy = {
       matched: 7103,
       coverage: 0.994,
       structures: 795,
-      hose: { count: 7103, mae: 3.577, medianAe: 1.58, p90Ae: 8.8 },
+      hose: { count: 7103, mae: 3.581, medianAe: 1.6, p90Ae: 8.8 },
       byTier: {
-        high: { count: 2472, mae: 1.508, medianAe: 0.66, p90Ae: 4.36 },
-        medium: { count: 3216, mae: 3.154, medianAe: 1.77, p90Ae: 7.45 },
+        high: { count: 2496, mae: 1.499, medianAe: 0.65, p90Ae: 4.36 },
+        medium: { count: 3192, mae: 3.183, medianAe: 1.8, p90Ae: 7.5 },
         low: { count: 1415, mae: 8.152, medianAe: 5.55, p90Ae: 18.22 }
       }
     }
