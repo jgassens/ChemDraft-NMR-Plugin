@@ -72,7 +72,9 @@ describe("composePredictionReport", () => {
     expect(figure.structure).toBeUndefined();
 
     const table = report.sections.find((section) => section.kind === "table");
-    // ¹³C fixture resonance carries no multiplet → Mult./J columns are "—"; no sphere/n → Confidence "—".
+    // ¹³C fixture resonance carries no multiplet → estimated Mult./J columns are "—"; no sphere/n → Confidence "—".
+    expect(table && table.kind === "table" ? table.columns : []).toContain("Mult. (est.)");
+    expect(table && table.kind === "table" ? table.columns : []).toContain("J est. (Hz)");
     expect(table && table.kind === "table" && table.rows[0]).toEqual([
       "¹³C",
       "128.50",

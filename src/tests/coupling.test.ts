@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 
 import { computeMultiplet } from "../providers/ocl/coupling";
 
-function multiplet(smiles: string, atom: number) {
+function multiplet(smiles: string, atom: number, equivalentHostAtoms: readonly number[] = [atom]) {
   const molecule = OCL.Molecule.fromSmiles(smiles);
   molecule.ensureHelperArrays(OCL.Molecule.cHelperRings);
-  return computeMultiplet(molecule, atom);
+  return computeMultiplet(molecule, atom, equivalentHostAtoms);
 }
 
 describe("computeMultiplet (first-order topology)", () => {
@@ -19,8 +19,19 @@ describe("computeMultiplet (first-order topology)", () => {
 
   it("isopropyl: methyls are a doublet, the methine is a septet", () => {
     // CC(C)Br — atoms 0,2 = CH3, atom 1 = CH.
-    expect(multiplet("CC(C)Br", 0).label).toBe("d");
+    expect(multiplet("CC(C)Br", 0, [0, 2]).label).toBe("d");
     expect(multiplet("CC(C)Br", 1).label).toBe("sept");
+  });
+
+  it("does not split an emitted class by chemically equivalent proton partners", () => {
+    expect(multiplet("CC", 0, [0, 1])).toEqual({ label: "s", couplings: [] });
+    expect(multiplet("c1ccccc1", 0, [0, 1, 2, 3, 4, 5])).toEqual({ label: "s", couplings: [] });
+    expect(multiplet("C1CCCCC1", 0, [0, 1, 2, 3, 4, 5])).toEqual({ label: "s", couplings: [] });
+  });
+
+  it("keeps ethanol's CH3 triplet and CH2 quartet", () => {
+    expect(multiplet("CCO", 0).label).toBe("t");
+    expect(multiplet("CCO", 1).label).toBe("q");
   });
 
   it("a proton with no coupled neighbours is a singlet", () => {
@@ -37,9 +48,9 @@ describe("computeMultiplet (first-order topology)", () => {
     expect(m.couplings[0].jHz).toBeLessThan(4);
   });
 
-  it("benzene ring protons show ortho + meta coupling (tt)", () => {
-    const m = multiplet("c1ccccc1", 0);
-    expect(m.label).toBe("tt");
-    expect(m.couplings.map((c) => c.kind)).toEqual(["aromatic-ortho", "aromatic-meta"]);
+  it("removes only equivalent aromatic partners from toluene's first-order patterns", () => {
+    expect(multiplet("Cc1ccccc1", 2, [2, 6]).label).toBe("dd");
+    expect(multiplet("Cc1ccccc1", 3, [3, 5]).label).toBe("t");
+    expect(multiplet("Cc1ccccc1", 4).label).toBe("tt");
   });
 });

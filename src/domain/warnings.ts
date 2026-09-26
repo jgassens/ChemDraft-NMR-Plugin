@@ -14,6 +14,8 @@ export const NmrWarningCodes = {
   SmallReferencePopulation: "NMR_SMALL_REFERENCE_POPULATION",
   PartialPrediction: "NMR_PARTIAL_PREDICTION",
   RuleEstimated: "NMR_RULE_ESTIMATED",
+  SecondOrderPatternLikely: "NMR_SECOND_ORDER_PATTERN_LIKELY",
+  StereoNonequivalentMerged: "NMR_STEREO_NONEQUIVALENT_MERGED",
   PotentiallyDiastereotopicHydrogens: "NMR_POTENTIALLY_DIASTEREOTOPIC_HYDROGENS",
   PotentiallyDiastereotopicMethyls: "NMR_POTENTIALLY_DIASTEREOTOPIC_METHYLS"
 } as const;

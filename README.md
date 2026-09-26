@@ -100,13 +100,23 @@ tree.
   groups and the structure contains a stereocenter, the pair may be
   diastereotopic; the warning is shown for both ¹H and ¹³C, while the model keeps
   one shift for the pair and does not fabricate separate values. Tert-butyl
-  groups are excluded.
-- **Fixture** — deterministic synthetic data; used for tests and as an offline /
-  no-`Worker` fallback.
+  groups are excluded. More generally, `NMR_STEREO_NONEQUIVALENT_MERGED`
+  identifies emitted constitutional classes whose OpenChemLib diastereotopic
+  atom IDs differ; those atoms may give separate signals, but the model keeps the
+  class merged and never copies or invents separate shifts. The older methyl code
+  takes precedence for the same methyl atoms. The older CH₂-hydrogen code remains
+  separate because it describes two implicit hydrogens on one host atom, which
+  heavy-atom IDs cannot distinguish. `NMR_SECOND_ORDER_PATTERN_LIKELY` marks
+  chemically equivalent but potentially magnetically nonequivalent spin systems;
+  multiplicity and J are only first-order, topology-based estimates, and a full
+  spin analysis may be needed.
+- **Fixture** — deterministic synthetic data used for tests and explicit fixture
+  provider requests.
 
 Both implement the same `NmrPredictor` interface, so the command / worker / panel
 are provider-agnostic. Prediction runs off the main thread in a Web Worker
-(request-id protocol), with an in-thread fallback where `Worker` is unavailable.
+(request-id protocol). Where `Worker` is unavailable, the fallback runs the real
+OCL-native predictor in-thread; it does not substitute fixture values.
 
 ## ⚠️ Data provenance
 

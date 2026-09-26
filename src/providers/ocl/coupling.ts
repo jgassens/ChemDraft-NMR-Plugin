@@ -22,9 +22,18 @@ const LABILE_PARTNER_ELEMENTS = new Set([7, 8, 16]);
 
 const NAMES: Record<number, string> = { 1: "d", 2: "t", 3: "q", 4: "quint", 5: "sext", 6: "sept" };
 
-export function computeMultiplet(molecule: OCL.Molecule, hostAtom: number): NmrMultiplet {
+export function computeMultiplet(
+  molecule: OCL.Molecule,
+  hostAtom: number,
+  equivalentHostAtoms: readonly number[] = [hostAtom]
+): NmrMultiplet {
   molecule.ensureHelperArrays(OCL.Molecule.cHelperRings);
   const couplings: NmrCoupling[] = [];
+  // Protons represented by one emitted constitutional class do not split one another in this
+  // first-order display. Including the observed host also makes this explicit for any future
+  // same-host (geminal) coupling path.
+  const chemicallyEquivalentHosts = new Set(equivalentHostAtoms);
+  chemicallyEquivalentHosts.add(hostAtom);
   const hostAromatic = molecule.isAromaticAtom(hostAtom);
   const hostAldehyde = isAldehydeCarbon(molecule, hostAtom);
 
@@ -32,7 +41,11 @@ export function computeMultiplet(molecule: OCL.Molecule, hostAtom: number): NmrM
   for (let i = 0; i < molecule.getConnAtoms(hostAtom); i += 1) {
     const neighbor = molecule.getConnAtom(hostAtom, i);
     const partnerCount = molecule.getAllHydrogens(neighbor);
-    if (partnerCount <= 0 || LABILE_PARTNER_ELEMENTS.has(molecule.getAtomicNo(neighbor))) {
+    if (
+      chemicallyEquivalentHosts.has(neighbor) ||
+      partnerCount <= 0 ||
+      LABILE_PARTNER_ELEMENTS.has(molecule.getAtomicNo(neighbor))
+    ) {
       continue;
     }
     if (hostAromatic && molecule.isAromaticAtom(neighbor)) {
@@ -47,6 +60,7 @@ export function computeMultiplet(molecule: OCL.Molecule, hostAtom: number): NmrM
   // Aromatic ⁴J (meta): protons two ring bonds away.
   if (hostAromatic) {
     for (const meta of aromaticMetaPartners(molecule, hostAtom)) {
+      if (chemicallyEquivalentHosts.has(meta)) continue;
       couplings.push({
         jHz: J_AROMATIC_META,
         partnerCount: molecule.getAllHydrogens(meta),

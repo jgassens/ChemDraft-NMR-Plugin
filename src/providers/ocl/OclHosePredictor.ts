@@ -111,7 +111,21 @@ export class OclHosePredictor implements NmrPredictor {
           : predictProton(this.database, molecule, lookupContext, request, resonances, warnings);
       totals.estimated += counts.estimated;
       totals.omitted += counts.omitted;
-      warnPotentiallyDiastereotopicMethyls(molecule, nucleus, resonances.slice(resonanceStart), warnings);
+      const nucleusResonances = resonances.slice(resonanceStart);
+      const specificallyWarnedMethylAtoms = warnPotentiallyDiastereotopicMethyls(
+        molecule,
+        nucleus,
+        nucleusResonances,
+        warnings
+      );
+      warnStereochemicallyDistinctMergedClasses(
+        molecule,
+        nucleus,
+        nucleusResonances,
+        specificallyWarnedMethylAtoms,
+        warnings
+      );
+      if (nucleus === "1H") warnLikelySecondOrderPatterns(molecule, nucleusResonances, warnings);
     }
 
     if (totals.estimated > 0) {
@@ -249,7 +263,7 @@ function predictProton(
     const codes = lookup.codes;
     const found = lookup.match;
     if (found) {
-      const multiplet = computeMultiplet(molecule, representative);
+      const multiplet = computeMultiplet(molecule, representative, atoms);
       const crossCheck = protonCrossCheck(molecule, representative, found.entry, request.options.statistic);
       resonances.push(
         buildResonance(
@@ -284,7 +298,7 @@ function predictProton(
         estimate.ppm,
         code,
         estimate.estimator,
-        computeMultiplet(molecule, representative)
+        computeMultiplet(molecule, representative, atoms)
       )
     );
   }
@@ -334,11 +348,15 @@ function protonCrossCheckReason(
 /** A CH₂ group in a constitutionally stereogenic molecule may contain a diastereotopic proton pair.
  * This is a disclosure detector only: it never splits the host or fabricates two shifts. */
 function potentiallyDiastereotopicMethyleneAtoms(molecule: OCL.Molecule): number[] {
-  if (!hasStereoCenter(molecule)) return [];
+  const atomsInStereogenicComponents = stereogenicComponentAtoms(molecule);
 
   const methylenes: number[] = [];
   for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
-    if (molecule.getAtomicNo(atom) === 6 && molecule.getAllHydrogens(atom) === 2) {
+    if (
+      atomsInStereogenicComponents.has(atom) &&
+      molecule.getAtomicNo(atom) === 6 &&
+      molecule.getAllHydrogens(atom) === 2
+    ) {
       methylenes.push(atom);
     }
   }
@@ -352,8 +370,8 @@ function warnPotentiallyDiastereotopicMethyls(
   nucleus: NmrNucleus,
   resonances: readonly NmrResonance[],
   warnings: NmrPredictionWarning[]
-): void {
-  if (!hasStereoCenter(molecule)) return;
+): ReadonlySet<number> {
+  const atomsInStereogenicComponents = stereogenicComponentAtoms(molecule);
 
   const emittedClassByAtom = new Map<number, number>();
   resonances.forEach((resonance, classIndex) => {
@@ -363,7 +381,7 @@ function warnPotentiallyDiastereotopicMethyls(
   const methylAtoms = new Set<number>();
   let methylPairCount = 0;
   for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
-    if (molecule.getAtomicNo(atom) !== 6) continue;
+    if (molecule.getAtomicNo(atom) !== 6 || !atomsInStereogenicComponents.has(atom)) continue;
     const methylNeighbors: number[] = [];
     for (let connection = 0; connection < molecule.getConnAtoms(atom); connection += 1) {
       const neighbor = molecule.getConnAtom(atom, connection);
@@ -381,7 +399,7 @@ function warnPotentiallyDiastereotopicMethyls(
     methylAtoms.add(second);
   }
 
-  if (methylPairCount === 0) return;
+  if (methylPairCount === 0) return methylAtoms;
   warnings.push(
     nmrWarning(
       NmrWarningCodes.PotentiallyDiastereotopicMethyls,
@@ -393,14 +411,159 @@ function warnPotentiallyDiastereotopicMethyls(
       }
     )
   );
+  return methylAtoms;
 }
 
-function hasStereoCenter(molecule: OCL.Molecule): boolean {
-  molecule.ensureHelperArrays(OCL.Molecule.cHelperCIP);
-  for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
-    if (molecule.isAtomStereoCenter(atom)) return true;
+/** Disclose a constitutional class whose heavy-atom members OCL identifies as diastereotopic. The
+ * class remains one record: there is no defensible source for separate shifts. The legacy methyl
+ * warning takes precedence for its exact atoms so downstream consumers keep that stable code
+ * without receiving a duplicate general warning. */
+function warnStereochemicallyDistinctMergedClasses(
+  molecule: OCL.Molecule,
+  nucleus: NmrNucleus,
+  resonances: readonly NmrResonance[],
+  specificallyWarnedMethylAtoms: ReadonlySet<number>,
+  warnings: NmrPredictionWarning[]
+): void {
+  const diastereotopicIds = molecule.getDiastereotopicAtomIDs();
+  const disclosedAtoms = new Set<number>();
+  let mergedClassCount = 0;
+
+  for (const resonance of resonances) {
+    const atoms = resonance.atomRefs.map((ref) => ref.sourceAtomIndex);
+    if (atoms.length < 2 || new Set(atoms.map((atom) => diastereotopicIds[atom])).size < 2) continue;
+    const uncoveredAtoms = atoms.filter((atom) => !specificallyWarnedMethylAtoms.has(atom));
+    if (uncoveredAtoms.length === 0) continue;
+    mergedClassCount += 1;
+    for (const atom of uncoveredAtoms) disclosedAtoms.add(atom);
+  }
+
+  if (mergedClassCount === 0) return;
+  const atomIndices = [...disclosedAtoms].sort((a, b) => a - b);
+  warnings.push(
+    nmrWarning(
+      NmrWarningCodes.StereoNonequivalentMerged,
+      `${formatAtoms(molecule, atomIndices)} are stereochemically distinct members of ${mergedClassCount} constitutionally merged ${nucleus} class(es). These atoms may give separate signals; this model reports one shift for each merged class and does not predict separate values.`,
+      {
+        severity: "info",
+        atomIndices,
+        details: { nucleus, mergedClassCount }
+      }
+    )
+  );
+}
+
+/** The scalar first-order display intentionally removes couplings within an emitted chemical class.
+ * Symmetric substituted aromatic systems and geminal vinylic systems can nevertheless be strongly
+ * coupled (AA'XX'-like), so explicitly disclose that the displayed pattern is not a spin analysis. */
+function warnLikelySecondOrderPatterns(
+  molecule: OCL.Molecule,
+  resonances: readonly NmrResonance[],
+  warnings: NmrPredictionWarning[]
+): void {
+  const disclosedAtoms = new Set<number>();
+  let patternClassCount = 0;
+  for (const resonance of resonances) {
+    const atoms = resonance.atomRefs.map((ref) => ref.sourceAtomIndex);
+    if (!isLikelySecondOrderClass(molecule, atoms)) continue;
+    patternClassCount += 1;
+    for (const atom of atoms) disclosedAtoms.add(atom);
+  }
+  if (patternClassCount === 0) return;
+
+  const atomIndices = [...disclosedAtoms].sort((a, b) => a - b);
+  warnings.push(
+    nmrWarning(
+      NmrWarningCodes.SecondOrderPatternLikely,
+      `${formatAtoms(molecule, atomIndices)} may form a chemically equivalent but magnetically nonequivalent spin system. The reported multiplicity and J values are first-order topology estimates, not an exact pattern; a full spin analysis may be needed.`,
+      {
+        severity: "info",
+        atomIndices,
+        details: { nucleus: "1H", patternClassCount }
+      }
+    )
+  );
+}
+
+function isLikelySecondOrderClass(molecule: OCL.Molecule, atoms: readonly number[]): boolean {
+  if (atoms.length > 1 && atoms.every((atom) => molecule.isAromaticAtom(atom))) {
+    const chemicalClass = new Set(atoms);
+    const aromaticSystem = new Set<number>();
+    const pending = [atoms[0]];
+    aromaticSystem.add(atoms[0]);
+    while (pending.length > 0) {
+      const atom = pending.pop()!;
+      for (let connection = 0; connection < molecule.getConnAtoms(atom); connection += 1) {
+        const neighbor = molecule.getConnAtom(atom, connection);
+        if (!molecule.isAromaticAtom(neighbor) || aromaticSystem.has(neighbor)) continue;
+        aromaticSystem.add(neighbor);
+        pending.push(neighbor);
+      }
+    }
+    // A fully protonated homogeneous ring (benzene) is the simple Aₙ case. A repeated class in a
+    // substituted/fused aromatic system is conservatively disclosed as potentially AA'XX'-like.
+    if ([...aromaticSystem].some((atom) => !chemicalClass.has(atom))) return true;
+  }
+
+  return atoms.some((atom) => hasGeminalVinylicSpinSystem(molecule, atom));
+}
+
+function hasGeminalVinylicSpinSystem(molecule: OCL.Molecule, atom: number): boolean {
+  if (molecule.getAtomicNo(atom) !== 6 || molecule.getAllHydrogens(atom) < 2) return false;
+  for (let connection = 0; connection < molecule.getConnAtoms(atom); connection += 1) {
+    const bond = molecule.getConnBond(atom, connection);
+    if (molecule.getBondOrder(bond) !== 2) continue;
+    const alkenePartner = molecule.getConnAtom(atom, connection);
+    if (molecule.getAtomicNo(alkenePartner) !== 6) continue;
+    const substituentsByElement = new Map<number, number>();
+    for (let partnerConnection = 0; partnerConnection < molecule.getConnAtoms(alkenePartner); partnerConnection += 1) {
+      const substituent = molecule.getConnAtom(alkenePartner, partnerConnection);
+      if (substituent === atom || molecule.getAtomicNo(substituent) === 1) continue;
+      const atomicNo = molecule.getAtomicNo(substituent);
+      substituentsByElement.set(atomicNo, (substituentsByElement.get(atomicNo) ?? 0) + 1);
+    }
+    if ([...substituentsByElement.values()].some((count) => count >= 2)) return true;
   }
   return false;
+}
+
+function formatAtoms(molecule: OCL.Molecule, atoms: readonly number[]): string {
+  return `Atoms ${atoms.map((atom) => `${molecule.getAtomLabel(atom)}${atom}`).join(", ")}`;
+}
+
+/** All atoms in connected components that contain a possible or assigned atom stereocenter. Keeping
+ * this component-local prevents an unrelated chiral salt/mixture component from triggering the
+ * legacy CH₂ or gem-dimethyl disclosures. */
+function stereogenicComponentAtoms(molecule: OCL.Molecule): Set<number> {
+  molecule.ensureHelperArrays(OCL.Molecule.cHelperCIP);
+  const atomCount = molecule.getAllAtoms();
+  const componentByAtom = new Int32Array(atomCount);
+  componentByAtom.fill(-1);
+  const stereogenicComponents = new Set<number>();
+  let component = 0;
+
+  for (let start = 0; start < atomCount; start += 1) {
+    if (componentByAtom[start] !== -1) continue;
+    const pending = [start];
+    componentByAtom[start] = component;
+    while (pending.length > 0) {
+      const atom = pending.pop()!;
+      if (molecule.isAtomStereoCenter(atom)) stereogenicComponents.add(component);
+      for (let connection = 0; connection < molecule.getAllConnAtoms(atom); connection += 1) {
+        const neighbor = molecule.getConnAtom(atom, connection);
+        if (componentByAtom[neighbor] !== -1) continue;
+        componentByAtom[neighbor] = component;
+        pending.push(neighbor);
+      }
+    }
+    component += 1;
+  }
+
+  const atoms = new Set<number>();
+  for (let atom = 0; atom < atomCount; atom += 1) {
+    if (stereogenicComponents.has(componentByAtom[atom])) atoms.add(atom);
+  }
+  return atoms;
 }
 
 function buildResonance(

@@ -280,7 +280,17 @@ function resonanceTable(result: NmrPredictionResult): PluginPanelSection {
   return {
     kind: "table",
     title: "Predicted shifts",
-    columns: ["Nucleus", "δ (ppm)", "Equiv.", "Mult.", "J (Hz)", "± σ (ppm)", "Confidence", "Atoms", "Environment"],
+    columns: [
+      "Nucleus",
+      "δ (ppm)",
+      "Equiv.",
+      "Mult. (est.)",
+      "J est. (Hz)",
+      "± σ (ppm)",
+      "Confidence",
+      "Atoms",
+      "Environment"
+    ],
     rows
   };
 }

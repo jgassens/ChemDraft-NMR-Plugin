@@ -154,6 +154,31 @@ describe("OclHosePredictor", () => {
     expect(sortedShifts(first)).toEqual(sortedShifts(second));
   });
 
+  it("documents OCL diastereotopic IDs used by the stereo-merge disclosure", () => {
+    const ids = (smiles: string) => OCL.Molecule.fromSmiles(smiles).getDiastereotopicAtomIDs();
+
+    const rr = ids("C[C@H](Br)[C@H](Br)C");
+    expect(rr[0]).toBe(rr[5]);
+    expect(rr[1]).toBe(rr[3]);
+
+    const meso = ids("C[C@H](Br)[C@@H](Br)C");
+    expect(meso[0]).toBe(meso[5]);
+    expect(meso[1]).toBe(meso[3]);
+
+    const glycerol = ids("OCC(O)CO");
+    expect(glycerol[1]).toBe(glycerol[4]);
+
+    const prenol = ids("CC(C)=CCO");
+    expect(prenol[0]).not.toBe(prenol[2]);
+
+    const ezMixture = ids("C/C=C/C.C/C=C\\C");
+    expect(ezMixture[0]).not.toBe(ezMixture[4]);
+    expect(ezMixture[1]).not.toBe(ezMixture[5]);
+
+    const methylButanol = ids("CC(O)C(C)C");
+    expect(methylButanol[4]).not.toBe(methylButanol[5]);
+  });
+
   it("round-trips a built database: querying the training molecule returns its shifts", async () => {
     const compiled = buildNmrDatabase(
       makeSd("CCC", [
@@ -362,6 +387,69 @@ describe("OclHosePredictor", () => {
     );
   });
 
+  it("emits the general stereo-merge disclosure for a proton class too", async () => {
+    const smiles = "CC(C)=CCO";
+    const result = await predict(
+      new OclHosePredictor({ database: databaseAtSphere(smiles, "1H", 1) }),
+      smiles,
+      "1H"
+    );
+    const warning = result.warnings.find(
+      (candidate) => candidate.code === "NMR_STEREO_NONEQUIVALENT_MERGED"
+    );
+    expect(warning?.atomIndices).toEqual([0, 2]);
+    expect(warning?.details?.nucleus).toBe("1H");
+  });
+
+  it.each([
+    ["prenol", "CC(C)=CCO", [0, 2], [[0, 2]]],
+    ["a multi-stereocenter chain", "C[C@H](O)C(Cl)[C@@H](O)C", [0, 1, 5, 7], [[0, 7], [1, 5]]],
+    [
+      "an E/Z mixture",
+      "C/C=C/C.C/C=C\\C",
+      [0, 1, 2, 3, 4, 5, 6, 7],
+      [[0, 3, 4, 7], [1, 2, 5, 6]]
+    ]
+  ] as const)(
+    "discloses stereochemically distinct members of an emitted constitutional class for %s without splitting shifts",
+    async (_name, smiles, warnedAtoms, mergedClasses) => {
+      const result = await predict(
+        new OclHosePredictor({ database: databaseAtSphere(smiles, "13C", 1) }),
+        smiles,
+        "13C"
+      );
+      const warning = result.warnings.find(
+        (candidate) => candidate.code === "NMR_STEREO_NONEQUIVALENT_MERGED"
+      );
+
+      expect(warning?.atomIndices).toEqual(warnedAtoms);
+      expect(warning?.message).toContain("may give separate signals");
+      expect(warning?.message).toContain("does not predict separate values");
+      for (const expectedClass of mergedClasses) {
+        expect(
+          result.resonances.filter((resonance) =>
+            expectedClass.every((atom) => resonance.atomRefs.some((ref) => ref.sourceAtomIndex === atom))
+          )
+        ).toHaveLength(1);
+      }
+    }
+  );
+
+  it.each([
+    ["(R,R)-2,3-dibromobutane", "C[C@H](Br)[C@H](Br)C"],
+    ["meso-2,3-dibromobutane", "C[C@H](Br)[C@@H](Br)C"],
+    ["glycerol", "OCC(O)CO"]
+  ])("does not report a false stereochemical class merge for %s", async (_name, smiles) => {
+    const result = await predict(
+      new OclHosePredictor({ database: databaseAtSphere(smiles, "13C", 1) }),
+      smiles,
+      "13C"
+    );
+    expect(result.warnings.map((warning) => warning.code)).not.toContain(
+      "NMR_STEREO_NONEQUIVALENT_MERGED"
+    );
+  });
+
   it.each([
     ["stereo-annotated", "C[C@@H](O)C(C)C"],
     ["racemic", "CC(O)C(C)C"]
@@ -384,6 +472,9 @@ describe("OclHosePredictor", () => {
       expect(warning.details?.methylPairCount).toBe(1);
       expect(warning.message).toContain("does not predict separate diastereotopic values");
     }
+    expect(result.warnings.map((warning) => warning.code)).not.toContain(
+      "NMR_STEREO_NONEQUIVALENT_MERGED"
+    );
   });
 
   it.each([
@@ -400,6 +491,104 @@ describe("OclHosePredictor", () => {
     expect(result.warnings.map((warning) => warning.code)).not.toContain(
       "NMR_POTENTIALLY_DIASTEREOTOPIC_METHYLS"
     );
+  });
+
+  it("scopes legacy methyl and methylene stereogenicity checks to the group's connected component", async () => {
+    const methylMixture = "CC(C)O.C[C@H](F)Cl";
+    const methylResult = await new OclHosePredictor({ now: () => "t" }).predict({
+      structure: { format: "smiles", value: methylMixture },
+      nuclei: ["13C", "1H"],
+      options: OPTIONS
+    });
+    expect(methylResult.warnings.map((warning) => warning.code)).not.toContain(
+      "NMR_POTENTIALLY_DIASTEREOTOPIC_METHYLS"
+    );
+
+    const methyleneMixture = "CCC.C[C@H](F)Cl";
+    const methyleneResult = await predict(
+      new OclHosePredictor({ database: databaseAtSphere(methyleneMixture, "1H", 1) }),
+      methyleneMixture,
+      "1H"
+    );
+    expect(methyleneResult.warnings.map((warning) => warning.code)).not.toContain(
+      "NMR_POTENTIALLY_DIASTEREOTOPIC_HYDROGENS"
+    );
+  });
+
+  it("keeps the tert-butyl exclusion when another carbon in the component is stereogenic", async () => {
+    const smiles = "C[C@H](O)C(C)(C)C";
+    const result = await new OclHosePredictor({ now: () => "t" }).predict({
+      structure: { format: "smiles", value: smiles },
+      nuclei: ["13C", "1H"],
+      options: OPTIONS
+    });
+    expect(result.warnings.map((warning) => warning.code)).not.toContain(
+      "NMR_POTENTIALLY_DIASTEREOTOPIC_METHYLS"
+    );
+  });
+
+  it.each([
+    ["ethane", "CC"],
+    ["benzene", "c1ccccc1"],
+    ["cyclohexane", "C1CCCCC1"]
+  ])("reports the chemically equivalent protons of %s as a singlet", async (_name, smiles) => {
+    const result = await predict(
+      new OclHosePredictor({ database: shallowDatabase(smiles, "1H", { median: 1.2 }) }),
+      smiles,
+      "1H"
+    );
+    expect(result.resonances).toHaveLength(1);
+    expect(result.resonances[0].multiplet).toEqual({ label: "s", couplings: [] });
+    expect(result.warnings.map((warning) => warning.code)).not.toContain(
+      "NMR_SECOND_ORDER_PATTERN_LIKELY"
+    );
+  });
+
+  it("keeps ethanol's first-order triplet/quartet pattern", async () => {
+    const smiles = "CCO";
+    const result = await predict(
+      new OclHosePredictor({ database: shallowDatabase(smiles, "1H", { median: 2 }) }),
+      smiles,
+      "1H"
+    );
+    const byAtom = new Map(
+      result.resonances.map((resonance) => [resonance.atomRefs[0].sourceAtomIndex, resonance.multiplet?.label])
+    );
+    expect(byAtom.get(0)).toBe("t");
+    expect(byAtom.get(1)).toBe("q");
+  });
+
+  it("keeps p-xylene's merged aromatic class as a singlet and discloses possible second-order behavior", async () => {
+    const smiles = "Cc1ccc(C)cc1";
+    const result = await predict(
+      new OclHosePredictor({ database: shallowDatabase(smiles, "1H", { median: 7 }) }),
+      smiles,
+      "1H"
+    );
+    const aromatic = result.resonances.find((resonance) =>
+      resonance.atomRefs.some((ref) => ref.sourceAtomIndex === 2)
+    );
+    expect(aromatic).toMatchObject({ equivalentNuclei: 4, multiplet: { label: "s", couplings: [] } });
+    const warning = result.warnings.find(
+      (candidate) => candidate.code === "NMR_SECOND_ORDER_PATTERN_LIKELY"
+    );
+    expect(warning?.atomIndices).toEqual([2, 3, 6, 7]);
+    expect(warning?.message).toContain("full spin analysis may be needed");
+    expect(warning?.message).toContain("not an exact pattern");
+  });
+
+  it("discloses a geminal vinylic AA'XX'-like system", async () => {
+    const smiles = "FC(F)=C";
+    const result = await predict(
+      new OclHosePredictor({ database: shallowDatabase(smiles, "1H", { median: 5 }) }),
+      smiles,
+      "1H"
+    );
+    const warning = result.warnings.find(
+      (candidate) => candidate.code === "NMR_SECOND_ORDER_PATTERN_LIKELY"
+    );
+    expect(warning?.atomIndices).toEqual([3]);
+    expect(warning?.message).toContain("full spin analysis may be needed");
   });
 
   it("keeps strychnine HOSE-first while exposing its applicable vinylic increment comparison", async () => {
@@ -454,7 +643,7 @@ describe("OclHosePredictor", () => {
     expect(split?.every((resonance) => resonance.crossCheck?.estimator?.id === "chemdraft.h1-additive-increment")).toBe(true);
   });
 
-  it("keeps symmetry-equivalent multiplets grouped when only representative partner indices differ", async () => {
+  it("does not count a symmetry-equivalent ethane host as its own coupling partner", async () => {
     const smiles = "CC";
     const result = await predict(
       new OclHosePredictor({ database: shallowDatabase(smiles, "1H", { median: 1.2 }) }),
@@ -463,7 +652,7 @@ describe("OclHosePredictor", () => {
     );
 
     expect(result.resonances).toHaveLength(1);
-    expect(result.resonances[0]).toMatchObject({ equivalentNuclei: 6, multiplet: { label: "q" } });
+    expect(result.resonances[0]).toMatchObject({ equivalentNuclei: 6, multiplet: { label: "s" } });
     expect(result.resonances[0].atomRefs.map((ref) => ref.sourceAtomIndex).sort((a, b) => a - b)).toEqual([0, 1]);
   });
 
