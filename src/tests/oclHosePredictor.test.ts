@@ -177,6 +177,14 @@ describe("OclHosePredictor", () => {
 
     const methylButanol = ids("CC(O)C(C)C");
     expect(methylButanol[4]).not.toBe(methylButanol[5]);
+
+    const disconnectedMixture = OCL.Molecule.fromSmiles("CC(C)O.C[C@H](F)Cl").getFragments();
+    const isopropanol = disconnectedMixture.find(
+      (fragment) => fragment.getAllAtoms() === 4 && fragment.getAtomicNo(3) === 8
+    );
+    expect(isopropanol).toBeDefined();
+    const isopropanolIds = isopropanol!.getDiastereotopicAtomIDs();
+    expect(isopropanolIds[0]).toBe(isopropanolIds[2]);
   });
 
   it("round-trips a built database: querying the training molecule returns its shifts", async () => {
@@ -503,6 +511,9 @@ describe("OclHosePredictor", () => {
     expect(methylResult.warnings.map((warning) => warning.code)).not.toContain(
       "NMR_POTENTIALLY_DIASTEREOTOPIC_METHYLS"
     );
+    expect(methylResult.warnings.map((warning) => warning.code)).not.toContain(
+      "NMR_STEREO_NONEQUIVALENT_MERGED"
+    );
 
     const methyleneMixture = "CCC.C[C@H](F)Cl";
     const methyleneResult = await predict(
@@ -558,7 +569,7 @@ describe("OclHosePredictor", () => {
     expect(byAtom.get(1)).toBe("q");
   });
 
-  it("keeps p-xylene's merged aromatic class as a singlet and discloses possible second-order behavior", async () => {
+  it("keeps p-xylene's isolated isochronous aromatic class as a singlet without a second-order warning", async () => {
     const smiles = "Cc1ccc(C)cc1";
     const result = await predict(
       new OclHosePredictor({ database: shallowDatabase(smiles, "1H", { median: 7 }) }),
@@ -569,26 +580,38 @@ describe("OclHosePredictor", () => {
       resonance.atomRefs.some((ref) => ref.sourceAtomIndex === 2)
     );
     expect(aromatic).toMatchObject({ equivalentNuclei: 4, multiplet: { label: "s", couplings: [] } });
-    const warning = result.warnings.find(
-      (candidate) => candidate.code === "NMR_SECOND_ORDER_PATTERN_LIKELY"
+    expect(result.warnings.map((warning) => warning.code)).not.toContain(
+      "NMR_SECOND_ORDER_PATTERN_LIKELY"
     );
-    expect(warning?.atomIndices).toEqual([2, 3, 6, 7]);
-    expect(warning?.message).toContain("full spin analysis may be needed");
-    expect(warning?.message).toContain("not an exact pattern");
   });
 
-  it("discloses a geminal vinylic AA'XX'-like system", async () => {
-    const smiles = "FC(F)=C";
+  it.each([
+    ["p-bromochlorobenzene", "Clc1ccc(Br)cc1", [2, 3, 6, 7]],
+    ["1,2-dichlorobenzene", "Clc1ccccc1Cl", [2, 3, 4, 5]]
+  ] as const)("discloses coupled second-order aromatic classes for %s", async (_name, smiles, atomIndices) => {
     const result = await predict(
-      new OclHosePredictor({ database: shallowDatabase(smiles, "1H", { median: 5 }) }),
+      new OclHosePredictor({ database: shallowDatabase(smiles, "1H", { median: 7 }) }),
       smiles,
       "1H"
     );
     const warning = result.warnings.find(
       (candidate) => candidate.code === "NMR_SECOND_ORDER_PATTERN_LIKELY"
     );
-    expect(warning?.atomIndices).toEqual([3]);
+    expect(warning?.atomIndices).toEqual(atomIndices);
     expect(warning?.message).toContain("full spin analysis may be needed");
+    expect(warning?.message).toContain("not an exact pattern");
+  });
+
+  it("does not disclose a geminal vinylic class without an estimated external proton coupling", async () => {
+    const smiles = "FC(F)=C";
+    const result = await predict(
+      new OclHosePredictor({ database: shallowDatabase(smiles, "1H", { median: 5 }) }),
+      smiles,
+      "1H"
+    );
+    expect(result.warnings.map((warning) => warning.code)).not.toContain(
+      "NMR_SECOND_ORDER_PATTERN_LIKELY"
+    );
   });
 
   it("keeps strychnine HOSE-first while exposing its applicable vinylic increment comparison", async () => {

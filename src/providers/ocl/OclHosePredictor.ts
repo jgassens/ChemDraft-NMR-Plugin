@@ -425,7 +425,7 @@ function warnStereochemicallyDistinctMergedClasses(
   specificallyWarnedMethylAtoms: ReadonlySet<number>,
   warnings: NmrPredictionWarning[]
 ): void {
-  const diastereotopicIds = molecule.getDiastereotopicAtomIDs();
+  const diastereotopicIds = componentLocalDiastereotopicAtomIds(molecule);
   const disclosedAtoms = new Set<number>();
   let mergedClassCount = 0;
 
@@ -451,6 +451,72 @@ function warnStereochemicallyDistinctMergedClasses(
       }
     )
   );
+}
+
+/** OCL's molecule-wide diastereotopic IDs allow a stereocenter in one disconnected component to
+ * distinguish enantiotopic atoms in another. Compute the IDs on isolated components instead, using
+ * and validating OCL's explicit source-to-component atom map before returning input-indexed IDs. */
+function componentLocalDiastereotopicAtomIds(molecule: OCL.Molecule): string[] {
+  const atomCount = molecule.getAllAtoms();
+  const componentByAtom = Array<number>(atomCount).fill(-1);
+  const componentCount = molecule.getFragmentNumbers(componentByAtom, false, true);
+  const inputIndexedIds = Array<string | undefined>(atomCount).fill(undefined);
+
+  for (let componentIndex = 0; componentIndex < componentCount; componentIndex += 1) {
+    const includedAtoms = componentByAtom.map((component) => component === componentIndex);
+    const component = new OCL.Molecule(atomCount, molecule.getAllBonds());
+    const inputToComponent = Array<number>(atomCount).fill(-1);
+    molecule.copyMoleculeByAtoms(component, includedAtoms, false, inputToComponent);
+    assertComponentAtomMapping(molecule, component, includedAtoms, inputToComponent);
+
+    const componentIds = component.getDiastereotopicAtomIDs();
+    for (let atom = 0; atom < atomCount; atom += 1) {
+      if (!includedAtoms[atom]) continue;
+      const componentAtom = inputToComponent[atom];
+      const id = componentIds[componentAtom];
+      if (id === undefined) {
+        throw new Error(`OpenChemLib did not return a diastereotopic ID for mapped atom ${atom}.`);
+      }
+      inputIndexedIds[atom] = id;
+    }
+  }
+
+  return inputIndexedIds.map((id, atom) => {
+    if (id === undefined) {
+      throw new Error(`OpenChemLib component mapping did not cover input atom ${atom}.`);
+    }
+    return id;
+  });
+}
+
+function assertComponentAtomMapping(
+  source: OCL.Molecule,
+  component: OCL.Molecule,
+  includedAtoms: readonly boolean[],
+  inputToComponent: readonly number[]
+): void {
+  const mappedAtoms = new Set<number>();
+  for (let atom = 0; atom < source.getAllAtoms(); atom += 1) {
+    const mappedAtom = inputToComponent[atom];
+    if (!includedAtoms[atom]) {
+      if (mappedAtom !== -1) throw new Error(`OpenChemLib unexpectedly mapped excluded atom ${atom}.`);
+      continue;
+    }
+    if (
+      mappedAtom < 0 ||
+      mappedAtom >= component.getAllAtoms() ||
+      mappedAtoms.has(mappedAtom) ||
+      source.getAtomicNo(atom) !== component.getAtomicNo(mappedAtom) ||
+      source.getAtomCharge(atom) !== component.getAtomCharge(mappedAtom) ||
+      source.getAtomMass(atom) !== component.getAtomMass(mappedAtom)
+    ) {
+      throw new Error(`OpenChemLib component copy did not preserve input atom ${atom}.`);
+    }
+    mappedAtoms.add(mappedAtom);
+  }
+  if (mappedAtoms.size !== component.getAllAtoms()) {
+    throw new Error("OpenChemLib component atom map did not match the copied atom count.");
+  }
 }
 
 /** The scalar first-order display intentionally removes couplings within an emitted chemical class.
@@ -486,6 +552,11 @@ function warnLikelySecondOrderPatterns(
 }
 
 function isLikelySecondOrderClass(molecule: OCL.Molecule, atoms: readonly number[]): boolean {
+  // An isochronous set on its own is observed through its total-spin operator, so internal scalar
+  // couplings cannot make its single line second order. Require a coupling that this model actually
+  // estimates to a proton-bearing host outside the emitted chemical class.
+  if (!atoms.some((atom) => computeMultiplet(molecule, atom, atoms).couplings.length > 0)) return false;
+
   if (atoms.length > 1 && atoms.every((atom) => molecule.isAromaticAtom(atom))) {
     const chemicalClass = new Set(atoms);
     const aromaticSystem = new Set<number>();
