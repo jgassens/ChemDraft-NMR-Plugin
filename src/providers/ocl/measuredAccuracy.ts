@@ -41,27 +41,27 @@ export const MEASURED_ACCURACY: MeasuredAccuracy = {
   holdOutPerMille: 20,
   nuclei: {
     "1H": {
-      assigned: 2515,
-      matched: 2493,
-      coverage: 0.991,
+      assigned: 2707,
+      matched: 2684,
+      coverage: 0.992,
       structures: 376,
-      hose: { count: 2493, mae: 0.356, medianAe: 0.17, p90Ae: 0.927 },
+      hose: { count: 2684, mae: 0.361, medianAe: 0.17, p90Ae: 0.92 },
       byTier: {
-        high: { count: 830, mae: 0.181, medianAe: 0.072, p90Ae: 0.46 },
-        medium: { count: 1153, mae: 0.338, medianAe: 0.17, p90Ae: 0.76 },
-        low: { count: 510, mae: 0.685, medianAe: 0.48, p90Ae: 1.49 }
+        high: { count: 987, mae: 0.21, medianAe: 0.08, p90Ae: 0.49 },
+        medium: { count: 1178, mae: 0.341, medianAe: 0.17, p90Ae: 0.802 },
+        low: { count: 519, mae: 0.694, medianAe: 0.51, p90Ae: 1.53 }
       }
     },
     "13C": {
-      assigned: 7155,
-      matched: 7109,
+      assigned: 7280,
+      matched: 7234,
       coverage: 0.994,
       structures: 795,
-      hose: { count: 7109, mae: 3.567, medianAe: 1.57, p90Ae: 8.8 },
+      hose: { count: 7234, mae: 3.563, medianAe: 1.57, p90Ae: 8.8 },
       byTier: {
-        high: { count: 2484, mae: 1.477, medianAe: 0.65, p90Ae: 4.2 },
-        medium: { count: 3207, mae: 3.159, medianAe: 1.79, p90Ae: 7.45 },
-        low: { count: 1418, mae: 8.15, medianAe: 5.56, p90Ae: 18.22 }
+        high: { count: 2585, mae: 1.531, medianAe: 0.68, p90Ae: 4.32 },
+        medium: { count: 3230, mae: 3.172, medianAe: 1.78, p90Ae: 7.5 },
+        low: { count: 1419, mae: 8.152, medianAe: 5.6, p90Ae: 18.22 }
       }
     }
   }
