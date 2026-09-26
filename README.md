@@ -111,10 +111,13 @@ tree.
   than multiple heavy-atom class members. `NMR_SECOND_ORDER_PATTERN_LIKELY` marks a
   chemically equivalent proton class only when its members have different
   model-reported J values to an outside proton in the same connected spin system;
-  an externally uncoupled isochronous set is not warned. Multiplicity and J are
-  only first-order, topology-based estimates, and a full spin analysis may be
-  needed. Disclosure checks are advisory: if OpenChemLib cannot complete one,
-  the predictor reports that limitation and still returns the available shifts.
+  an externally uncoupled isochronous set is not warned. Model-reported J values
+  and displayed multiplets share one exchange-decoupling policy: O–H, N–H, and
+  S–H coupling paths are excluded when labile hydrogens are ignored and retained
+  when they are requested. Multiplicity and J are only first-order, topology-based
+  estimates, and a full spin analysis may be needed. Disclosure checks are
+  advisory: if OpenChemLib cannot complete one, the predictor reports that
+  limitation and still returns the available shifts.
 - **Fixture** — deterministic synthetic data used for tests and explicit fixture
   provider requests.
 

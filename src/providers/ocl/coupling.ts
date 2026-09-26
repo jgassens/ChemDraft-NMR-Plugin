@@ -27,7 +27,8 @@ const NAMES: Record<number, string> = { 1: "d", 2: "t", 3: "q", 4: "quint", 5: "
 export function computeMultiplet(
   molecule: OCL.Molecule,
   hostAtom: number,
-  equivalentHostAtoms: readonly number[] = [hostAtom]
+  equivalentHostAtoms: readonly number[] = [hostAtom],
+  ignoreLabileHydrogens = true
 ): NmrMultiplet {
   molecule.ensureHelperArrays(OCL.Molecule.cHelperRings);
   const couplings: NmrCoupling[] = [];
@@ -36,39 +37,31 @@ export function computeMultiplet(
   // same-host (geminal) coupling path.
   const chemicallyEquivalentHosts = new Set(equivalentHostAtoms);
   chemicallyEquivalentHosts.add(hostAtom);
-  const hostAromatic = molecule.isAromaticAtom(hostAtom);
-  const hostAldehyde = isAldehydeCarbon(molecule, hostAtom);
 
   // Vicinal ³J: protons on the host's heavy neighbours (path H–C–C–H).
   for (let i = 0; i < molecule.getConnAtoms(hostAtom); i += 1) {
     const neighbor = molecule.getConnAtom(hostAtom, i);
-    const partnerCount = molecule.getAllHydrogens(neighbor);
-    if (
-      chemicallyEquivalentHosts.has(neighbor) ||
-      partnerCount <= 0 ||
-      LABILE_PARTNER_ELEMENTS.has(molecule.getAtomicNo(neighbor))
-    ) {
-      continue;
-    }
-    if (hostAromatic && molecule.isAromaticAtom(neighbor)) {
-      couplings.push({ jHz: J_AROMATIC_ORTHO, partnerCount, kind: "aromatic-ortho", toAtomIndex: neighbor });
-    } else if (hostAldehyde || isAldehydeCarbon(molecule, neighbor)) {
-      couplings.push({ jHz: J_ALDEHYDE, partnerCount, kind: "aldehyde", toAtomIndex: neighbor });
-    } else {
-      couplings.push({ jHz: J_VICINAL, partnerCount, kind: "vicinal", toAtomIndex: neighbor });
-    }
+    if (chemicallyEquivalentHosts.has(neighbor)) continue;
+    const coupling = protonCouplingBetweenHosts(
+      molecule,
+      hostAtom,
+      neighbor,
+      ignoreLabileHydrogens
+    );
+    if (coupling) couplings.push(coupling);
   }
 
   // Aromatic ⁴J (meta): protons two ring bonds away.
-  if (hostAromatic) {
+  if (molecule.isAromaticAtom(hostAtom)) {
     for (const meta of aromaticMetaPartners(molecule, hostAtom)) {
       if (chemicallyEquivalentHosts.has(meta)) continue;
-      couplings.push({
-        jHz: J_AROMATIC_META,
-        partnerCount: molecule.getAllHydrogens(meta),
-        kind: "aromatic-meta",
-        toAtomIndex: meta
-      });
+      const coupling = protonCouplingBetweenHosts(
+        molecule,
+        hostAtom,
+        meta,
+        ignoreLabileHydrogens
+      );
+      if (coupling) couplings.push(coupling);
     }
   }
 
@@ -84,39 +77,70 @@ export function computeMultiplet(
 export function reportedProtonCouplingHz(
   molecule: OCL.Molecule,
   firstHost: number,
-  secondHost: number
+  secondHost: number,
+  ignoreLabileHydrogens = true
 ): number {
+  molecule.ensureHelperArrays(OCL.Molecule.cHelperRings);
+  return (
+    protonCouplingBetweenHosts(
+      molecule,
+      firstHost,
+      secondHost,
+      ignoreLabileHydrogens
+    )?.jHz ?? 0
+  );
+}
+
+/** The single exchange-decoupling and topology policy used by both multiplet construction and
+ * pairwise magnetic-equivalence vectors. */
+function protonCouplingBetweenHosts(
+  molecule: OCL.Molecule,
+  firstHost: number,
+  secondHost: number,
+  ignoreLabileHydrogens: boolean
+): NmrCoupling | undefined {
   if (
     firstHost === secondHost ||
     molecule.getAtomicNo(firstHost) === 1 ||
     molecule.getAtomicNo(secondHost) === 1 ||
     molecule.getAllHydrogens(firstHost) <= 0 ||
     molecule.getAllHydrogens(secondHost) <= 0 ||
-    LABILE_PARTNER_ELEMENTS.has(molecule.getAtomicNo(firstHost)) ||
-    LABILE_PARTNER_ELEMENTS.has(molecule.getAtomicNo(secondHost))
+    (ignoreLabileHydrogens &&
+      (LABILE_PARTNER_ELEMENTS.has(molecule.getAtomicNo(firstHost)) ||
+        LABILE_PARTNER_ELEMENTS.has(molecule.getAtomicNo(secondHost))))
   ) {
-    return 0;
+    return undefined;
   }
 
-  molecule.ensureHelperArrays(OCL.Molecule.cHelperRings);
-  let estimated = 0;
+  let jHz = 0;
+  let kind: NmrCoupling["kind"] = "other";
   if (areBonded(molecule, firstHost, secondHost)) {
     if (molecule.isAromaticAtom(firstHost) && molecule.isAromaticAtom(secondHost)) {
-      estimated = J_AROMATIC_ORTHO;
+      jHz = J_AROMATIC_ORTHO;
+      kind = "aromatic-ortho";
     } else if (isAldehydeCarbon(molecule, firstHost) || isAldehydeCarbon(molecule, secondHost)) {
-      estimated = J_ALDEHYDE;
+      jHz = J_ALDEHYDE;
+      kind = "aldehyde";
     } else {
-      estimated = J_VICINAL;
+      jHz = J_VICINAL;
+      kind = "vicinal";
     }
   } else if (
     molecule.isAromaticAtom(firstHost) &&
     molecule.isAromaticAtom(secondHost) &&
     aromaticMetaPartners(molecule, firstHost).includes(secondHost)
   ) {
-    estimated = J_AROMATIC_META;
+    jHz = J_AROMATIC_META;
+    kind = "aromatic-meta";
   }
 
-  return estimated >= PROTON_COUPLING_REPORTING_THRESHOLD_HZ ? estimated : 0;
+  if (jHz < PROTON_COUPLING_REPORTING_THRESHOLD_HZ) return undefined;
+  return {
+    jHz,
+    partnerCount: molecule.getAllHydrogens(secondHost),
+    kind,
+    toAtomIndex: secondHost
+  };
 }
 
 function areBonded(molecule: OCL.Molecule, first: number, second: number): boolean {

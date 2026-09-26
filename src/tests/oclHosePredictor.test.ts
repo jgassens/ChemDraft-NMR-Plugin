@@ -681,6 +681,42 @@ M  END
     );
   });
 
+  it.each(["OCCO", "NCCN"])(
+    "keeps %s labile-host multiplets and magnetic-equivalence disclosures on one exchange policy",
+    async (smiles) => {
+      const predictor = new OclHosePredictor({
+        database: shallowDatabase(smiles, "1H", { median: 3 })
+      });
+      const request = (ignoreLabileHydrogens: boolean) =>
+        predictor.predict({
+          structure: { format: "smiles", value: smiles },
+          nuclei: ["1H"],
+          options: { ...OPTIONS, ignoreLabileHydrogens }
+        });
+      const [included, ignored] = await Promise.all([request(false), request(true)]);
+      const includedLabile = included.resonances.find((resonance) =>
+        resonance.atomRefs.some((ref) => ref.sourceAtomIndex === 0)
+      );
+
+      expect(includedLabile).toMatchObject({
+        atomRefs: [
+          { sourceAtomIndex: 0 },
+          { sourceAtomIndex: 3 }
+        ],
+        multiplet: { label: "t", couplings: [{ jHz: 7, toAtomIndex: 1 }] }
+      });
+      expect(included.warnings.map((warning) => warning.code)).toContain(
+        "NMR_SECOND_ORDER_PATTERN_LIKELY"
+      );
+      expect(ignored.resonances.some((resonance) =>
+        resonance.atomRefs.some((ref) => ref.sourceAtomIndex === 0)
+      )).toBe(false);
+      expect(ignored.warnings.map((warning) => warning.code)).not.toContain(
+        "NMR_SECOND_ORDER_PATTERN_LIKELY"
+      );
+    }
+  );
+
   it("keeps p-xylene's isolated isochronous aromatic class as a singlet without a second-order warning", async () => {
     const smiles = "Cc1ccc(C)cc1";
     const result = await predict(
@@ -875,4 +911,12 @@ M  END
       expect(bond.order).toBeLessThanOrEqual(3);
     }
   });
+
+  it("keeps 13C-only long-chain disclosure analysis within a generous runtime bound", async () => {
+    const predictor = new OclHosePredictor({ now: () => "t" });
+    await predict(predictor, "CC", "13C");
+    const started = performance.now();
+    await predict(predictor, "C".repeat(150), "13C");
+    expect(performance.now() - started).toBeLessThan(7_500);
+  }, 15_000);
 });

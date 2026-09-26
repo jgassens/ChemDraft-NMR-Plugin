@@ -7,10 +7,15 @@ import {
   reportedProtonCouplingHz
 } from "../providers/ocl/coupling";
 
-function multiplet(smiles: string, atom: number, equivalentHostAtoms: readonly number[] = [atom]) {
+function multiplet(
+  smiles: string,
+  atom: number,
+  equivalentHostAtoms: readonly number[] = [atom],
+  ignoreLabileHydrogens = true
+) {
   const molecule = OCL.Molecule.fromSmiles(smiles);
   molecule.ensureHelperArrays(OCL.Molecule.cHelperRings);
-  return computeMultiplet(molecule, atom, equivalentHostAtoms);
+  return computeMultiplet(molecule, atom, equivalentHostAtoms, ignoreLabileHydrogens);
 }
 
 describe("computeMultiplet (first-order topology)", () => {
@@ -69,4 +74,24 @@ describe("computeMultiplet (first-order topology)", () => {
     expect(reportedProtonCouplingHz(dibromobutane, 3, 0)).toBe(0);
     expect(PROTON_COUPLING_REPORTING_THRESHOLD_HZ).toBeGreaterThan(0);
   });
+
+  it.each([
+    ["OCCO", "q"],
+    ["NCCN", "quint"]
+  ])(
+    "uses the same option-aware exchange policy for %s multiplets and pairwise J",
+    (smiles, carbonMultiplicity) => {
+      const molecule = OCL.Molecule.fromSmiles(smiles);
+
+      expect(multiplet(smiles, 0, [0], false).label).toBe("t");
+      expect(multiplet(smiles, 1, [1], false).label).toBe(carbonMultiplicity);
+      expect(reportedProtonCouplingHz(molecule, 0, 1, false)).toBe(7);
+      expect(reportedProtonCouplingHz(molecule, 1, 0, false)).toBe(7);
+
+      expect(multiplet(smiles, 0, [0], true)).toEqual({ label: "s", couplings: [] });
+      expect(multiplet(smiles, 1, [1], true).label).toBe("t");
+      expect(reportedProtonCouplingHz(molecule, 0, 1, true)).toBe(0);
+      expect(reportedProtonCouplingHz(molecule, 1, 0, true)).toBe(0);
+    }
+  );
 });
