@@ -526,6 +526,45 @@ describe("OclHosePredictor", () => {
     );
   });
 
+  it("treats zero-order metal-ligand bonds as component connections", async () => {
+    // Isopropanol and the chiral alkyl fragment are linked only through the two V2000 type-8
+    // (zero-order metal-ligand) bonds to iron.
+    const molfile = `
+Actelion Java MolfileCreator 1.0
+
+  9  8  0  0  1  0  0  0  0  0999 V2000
+   -0.1340   -0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    0.8660   -0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    1.3660   -0.8660    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    1.3660    0.8660    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0
+    4.4660    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    3.4660    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    2.9660    0.8660    0.0000 F   0  0  0  0  0  0  0  0  0  0  0  0
+    2.9660   -0.8660    0.0000 Cl  0  0  0  0  0  0  0  0  0  0  0  0
+    2.2000    0.0000    0.0000 Fe  0  0  0  0  0  0  0  0  0  0  0  0
+  1  2  1  0  0  0  0
+  2  3  1  0  0  0  0
+  2  4  1  0  0  0  0
+  5  6  1  0  0  0  0
+  6  7  1  1  0  0  0
+  6  8  1  0  0  0  0
+  2  9  8  0  0  0  0
+  6  9  8  0  0  0  0
+M  END
+`;
+    const parsed = OCL.Molecule.fromMolfile(molfile);
+    expect([6, 7].map((bond) => parsed.getBondOrder(bond))).toEqual([0, 0]);
+
+    const result = await new OclHosePredictor({ now: () => "t" }).predict({
+      structure: { format: "molfile-v2000", value: molfile },
+      nuclei: ["13C", "1H"],
+      options: OPTIONS
+    });
+    expect(
+      result.warnings.filter((warning) => warning.code === "NMR_POTENTIALLY_DIASTEREOTOPIC_METHYLS")
+    ).toHaveLength(2);
+  });
+
   it("keeps the tert-butyl exclusion when another carbon in the component is stereogenic", async () => {
     const smiles = "C[C@H](O)C(C)(C)C";
     const result = await new OclHosePredictor({ now: () => "t" }).predict({

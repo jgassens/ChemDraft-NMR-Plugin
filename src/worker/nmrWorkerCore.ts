@@ -11,7 +11,8 @@ function defaultPredictor(providerId: string): NmrPredictor {
 }
 
 export interface NmrWorkerHandlerDeps {
-  /** Provider factory, keyed by the initialize message's providerId. Defaults to the fixture provider. */
+  /** Provider factory, keyed by the initialize message's providerId. Defaults to the OCL predictor
+   * unless the fixture provider is explicitly requested. */
   createPredictor?: (providerId: string) => NmrPredictor;
 }
 

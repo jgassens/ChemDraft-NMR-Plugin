@@ -458,8 +458,8 @@ function warnStereochemicallyDistinctMergedClasses(
  * and validating OCL's explicit source-to-component atom map before returning input-indexed IDs. */
 function componentLocalDiastereotopicAtomIds(molecule: OCL.Molecule): string[] {
   const atomCount = molecule.getAllAtoms();
-  const componentByAtom = Array<number>(atomCount).fill(-1);
-  const componentCount = molecule.getFragmentNumbers(componentByAtom, false, true);
+  const componentByAtom = connectedComponentNumbers(molecule);
+  const componentCount = Math.max(...componentByAtom) + 1;
   const inputIndexedIds = Array<string | undefined>(atomCount).fill(undefined);
 
   for (let componentIndex = 0; componentIndex < componentCount; componentIndex += 1) {
@@ -520,8 +520,8 @@ function assertComponentAtomMapping(
 }
 
 /** The scalar first-order display intentionally removes couplings within an emitted chemical class.
- * Symmetric substituted aromatic systems and geminal vinylic systems can nevertheless be strongly
- * coupled (AA'XX'-like), so explicitly disclose that the displayed pattern is not a spin analysis. */
+ * Symmetric substituted aromatic systems can nevertheless be strongly coupled (AA'XX'-like), so
+ * explicitly disclose that the displayed pattern is not a spin analysis. */
 function warnLikelySecondOrderPatterns(
   molecule: OCL.Molecule,
   resonances: readonly NmrResonance[],
@@ -576,30 +576,20 @@ function isLikelySecondOrderClass(molecule: OCL.Molecule, atoms: readonly number
     if ([...aromaticSystem].some((atom) => !chemicalClass.has(atom))) return true;
   }
 
-  return atoms.some((atom) => hasGeminalVinylicSpinSystem(molecule, atom));
-}
-
-function hasGeminalVinylicSpinSystem(molecule: OCL.Molecule, atom: number): boolean {
-  if (molecule.getAtomicNo(atom) !== 6 || molecule.getAllHydrogens(atom) < 2) return false;
-  for (let connection = 0; connection < molecule.getConnAtoms(atom); connection += 1) {
-    const bond = molecule.getConnBond(atom, connection);
-    if (molecule.getBondOrder(bond) !== 2) continue;
-    const alkenePartner = molecule.getConnAtom(atom, connection);
-    if (molecule.getAtomicNo(alkenePartner) !== 6) continue;
-    const substituentsByElement = new Map<number, number>();
-    for (let partnerConnection = 0; partnerConnection < molecule.getConnAtoms(alkenePartner); partnerConnection += 1) {
-      const substituent = molecule.getConnAtom(alkenePartner, partnerConnection);
-      if (substituent === atom || molecule.getAtomicNo(substituent) === 1) continue;
-      const atomicNo = molecule.getAtomicNo(substituent);
-      substituentsByElement.set(atomicNo, (substituentsByElement.get(atomicNo) ?? 0) + 1);
-    }
-    if ([...substituentsByElement.values()].some((count) => count >= 2)) return true;
-  }
   return false;
 }
 
 function formatAtoms(molecule: OCL.Molecule, atoms: readonly number[]): string {
   return `Atoms ${atoms.map((atom) => `${molecule.getAtomLabel(atom)}${atom}`).join(", ")}`;
+}
+
+/** Return connected-component indexes, treating all bonds, including zero-order metal-ligand bonds,
+ * as connections. This is the definition used for component-local stereochemistry throughout this
+ * predictor. */
+function connectedComponentNumbers(molecule: OCL.Molecule): number[] {
+  const componentByAtom = Array<number>(molecule.getAllAtoms()).fill(-1);
+  molecule.getFragmentNumbers(componentByAtom, false, true);
+  return componentByAtom;
 }
 
 /** All atoms in connected components that contain a possible or assigned atom stereocenter. Keeping
@@ -608,26 +598,11 @@ function formatAtoms(molecule: OCL.Molecule, atoms: readonly number[]): string {
 function stereogenicComponentAtoms(molecule: OCL.Molecule): Set<number> {
   molecule.ensureHelperArrays(OCL.Molecule.cHelperCIP);
   const atomCount = molecule.getAllAtoms();
-  const componentByAtom = new Int32Array(atomCount);
-  componentByAtom.fill(-1);
+  const componentByAtom = connectedComponentNumbers(molecule);
   const stereogenicComponents = new Set<number>();
-  let component = 0;
 
-  for (let start = 0; start < atomCount; start += 1) {
-    if (componentByAtom[start] !== -1) continue;
-    const pending = [start];
-    componentByAtom[start] = component;
-    while (pending.length > 0) {
-      const atom = pending.pop()!;
-      if (molecule.isAtomStereoCenter(atom)) stereogenicComponents.add(component);
-      for (let connection = 0; connection < molecule.getAllConnAtoms(atom); connection += 1) {
-        const neighbor = molecule.getConnAtom(atom, connection);
-        if (componentByAtom[neighbor] !== -1) continue;
-        componentByAtom[neighbor] = component;
-        pending.push(neighbor);
-      }
-    }
-    component += 1;
+  for (let atom = 0; atom < atomCount; atom += 1) {
+    if (molecule.isAtomStereoCenter(atom)) stereogenicComponents.add(componentByAtom[atom]);
   }
 
   const atoms = new Set<number>();
