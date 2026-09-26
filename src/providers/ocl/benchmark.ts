@@ -97,8 +97,9 @@ export interface EvaluateOptions {
 }
 
 /** Score every usable held-out assignment against the (train-only) database. Assignment semantics —
- * molfile atom mapping, proton→host resolution, first listed atom — mirror `buildNmrDatabase`
- * ingestion so the benchmark asks exactly the question the database answers. */
+ * molfile atom mapping, proton→host resolution, and one row per distinct listed production symmetry
+ * class — mirror `buildNmrDatabase` ingestion so the benchmark asks exactly the question the
+ * database answers. */
 export function evaluateHeldOut(
   database: CompiledNmrDatabase,
   heldOut: readonly NmredataRecord[],
@@ -115,7 +116,10 @@ export function evaluateHeldOut(
       continue;
     }
     const { molecule, oclAtomByMolfileIndex } = parsed;
+    // Prepared once per record; environment codes remain cached across every assignment and atom.
     const lookupContext = prepareProductionLookup(molecule, maxSpheres);
+    const carbonClassByAtom = indexProductionClasses(lookupContext.carbonClasses);
+    const protonClassByAtom = indexProductionClasses(lookupContext.protonClasses);
 
     for (const assignment of record.assignments) {
       const nucleus: NmrNucleus | undefined = record.carbonLabels.has(assignment.label)
@@ -124,31 +128,48 @@ export function evaluateHeldOut(
           ? "1H"
           : undefined;
       if (!nucleus) continue;
-      const oclAtom = oclAtomByMolfileIndex.get(assignment.atoms[0]);
-      if (oclAtom === undefined) continue;
 
-      const codeAtom = productionCodeAtom(molecule, nucleus, oclAtom);
-      if (codeAtom < 0) continue;
+      const classByAtom = nucleus === "13C" ? carbonClassByAtom : protonClassByAtom;
+      const seenClasses = new Set<number>();
+      // Match compiler weighting: duplicate atoms from one production symmetry class count once,
+      // but a single ambiguous/multi-atom assignment spanning distinct classes produces each row.
+      for (const atomReference of assignment.atoms) {
+        const oclAtom = oclAtomByMolfileIndex.get(atomReference);
+        if (oclAtom === undefined) continue;
+        const codeAtom = productionCodeAtom(molecule, nucleus, oclAtom);
+        if (codeAtom < 0) continue;
+        const classIndex = classByAtom.get(codeAtom);
+        if (classIndex === undefined || seenClasses.has(classIndex)) continue;
+        seenClasses.add(classIndex);
 
-      const row: BenchmarkRow = { nucleus, structureIndex, assignedPpm: assignment.shift };
-      const lookup = lookupProductionEnvironment(database, lookupContext, nucleus, codeAtom);
-      const found = lookup.match;
-      if (found) {
-        row.hosePpm = shiftFor(found.entry, statistic);
-        row.sphere = found.entry.sphere;
-        row.n = found.entry.n;
-        row.tier = benchmarkTier(found.entry.sphere, found.entry.n);
-      }
-      if (nucleus === "1H") {
-        const increment = estimateProtonIncrement(molecule, lookup.representativeAtom);
-        if (increment.applicable) {
-          row.incrementPpm = increment.ppm;
+        const row: BenchmarkRow = { nucleus, structureIndex, assignedPpm: assignment.shift };
+        const lookup = lookupProductionEnvironment(database, lookupContext, nucleus, codeAtom);
+        const found = lookup.match;
+        if (found) {
+          row.hosePpm = shiftFor(found.entry, statistic);
+          row.sphere = found.entry.sphere;
+          row.n = found.entry.n;
+          row.tier = benchmarkTier(found.entry.sphere, found.entry.n);
         }
+        if (nucleus === "1H") {
+          const increment = estimateProtonIncrement(molecule, lookup.representativeAtom);
+          if (increment.applicable) {
+            row.incrementPpm = increment.ppm;
+          }
+        }
+        rows.push(row);
       }
-      rows.push(row);
     }
   }
   return rows;
+}
+
+function indexProductionClasses(classes: readonly (readonly number[])[]): ReadonlyMap<number, number> {
+  const classByAtom = new Map<number, number>();
+  for (let classIndex = 0; classIndex < classes.length; classIndex += 1) {
+    for (const atom of classes[classIndex]) classByAtom.set(atom, classIndex);
+  }
+  return classByAtom;
 }
 
 export interface ErrorStats {

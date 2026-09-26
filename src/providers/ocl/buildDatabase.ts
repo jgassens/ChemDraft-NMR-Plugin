@@ -64,6 +64,8 @@ export function buildNmrDatabase(rawSdContent: string, options: BuildDatabaseOpt
     } catch {
       continue;
     }
+    const carbonClassByAtom = indexProductionClasses(lookupContext.carbonClasses);
+    const protonClassByAtom = indexProductionClasses(lookupContext.protonClasses);
 
     let usedStructure = false;
     for (const assignment of assignments) {
@@ -75,27 +77,33 @@ export function buildNmrDatabase(rawSdContent: string, options: BuildDatabaseOpt
       if (!nucleus) {
         continue;
       }
-      const oclAtom = oclAtomByMolfileIndex.get(assignment.atoms[0]);
-      if (oclAtom === undefined) {
-        continue;
-      }
 
-      const codeAtom = productionCodeAtom(molecule, nucleus, oclAtom);
-      if (codeAtom < 0) {
-        continue;
-      }
+      const classByAtom = nucleus === "13C" ? carbonClassByAtom : protonClassByAtom;
+      const seenClasses = new Set<number>();
+      // Weight one observation per assignment per distinct production symmetry class. Thus a list
+      // of equivalent carbons or three H on one methyl retains the historical single observation,
+      // while a resonance explicitly assigned to inequivalent environments contributes once to each.
+      for (const atomReference of assignment.atoms) {
+        const oclAtom = oclAtomByMolfileIndex.get(atomReference);
+        if (oclAtom === undefined) continue;
+        const codeAtom = productionCodeAtom(molecule, nucleus, oclAtom);
+        if (codeAtom < 0) continue;
+        const classIndex = classByAtom.get(codeAtom);
+        if (classIndex === undefined || seenClasses.has(classIndex)) continue;
+        seenClasses.add(classIndex);
 
-      for (const code of productionEnvironmentCodes(lookupContext, codeAtom)) {
-        const key = environmentKey(nucleus, code);
-        const bucket = buckets.get(key);
-        if (bucket) {
-          bucket.shifts.push(assignment.shift);
-        } else {
-          buckets.set(key, { nucleus, sphere: sphereDepthOf(code), shifts: [assignment.shift] });
+        for (const code of productionEnvironmentCodes(lookupContext, codeAtom)) {
+          const key = environmentKey(nucleus, code);
+          const bucket = buckets.get(key);
+          if (bucket) {
+            bucket.shifts.push(assignment.shift);
+          } else {
+            buckets.set(key, { nucleus, sphere: sphereDepthOf(code), shifts: [assignment.shift] });
+          }
         }
+        nucleiSeen.add(nucleus);
+        usedStructure = true;
       }
-      nucleiSeen.add(nucleus);
-      usedStructure = true;
     }
     if (usedStructure) {
       structureCount += 1;
@@ -123,3 +131,10 @@ export function buildNmrDatabase(rawSdContent: string, options: BuildDatabaseOpt
   };
 }
 
+function indexProductionClasses(classes: readonly (readonly number[])[]): ReadonlyMap<number, number> {
+  const classByAtom = new Map<number, number>();
+  for (let classIndex = 0; classIndex < classes.length; classIndex += 1) {
+    for (const atom of classes[classIndex]) classByAtom.set(atom, classIndex);
+  }
+  return classByAtom;
+}

@@ -45,6 +45,22 @@ M  V30 END BOND
 M  V30 END CTAB
 M  END`;
 
+const V3000_NONCONSECUTIVE = `
+  test
+
+  0  0  0     0  0            999 V3000
+M  V30 BEGIN CTAB
+M  V30 COUNTS 2 1 0 0 0
+M  V30 BEGIN ATOM
+M  V30 10 C 0.866 0 0 0
+M  V30 20 O 1.732 0 0 0
+M  V30 END ATOM
+M  V30 BEGIN BOND
+M  V30 1 1 10 20
+M  V30 END BOND
+M  V30 END CTAB
+M  END`;
+
 describe("parseNmredataMolecule", () => {
   it.each([
     ["V2000", V2000_H_FIRST],
@@ -67,5 +83,33 @@ describe("parseNmredataMolecule", () => {
 
   it("returns undefined for text that is not a molfile", () => {
     expect(parseNmredataMolecule("not a molfile")).toBeUndefined();
+  });
+
+  it("normalizes CRLF before stamping short V2000 atom lines", () => {
+    const parsed = parseNmredataMolecule(V2000_H_FIRST.replace(/\n/g, "\r\n"));
+    expect(parsed).toBeDefined();
+    expect(parsed?.oclAtomByMolfileIndex.size).toBe(6);
+    expect(parsed?.molecule.getAtomLabel(parsed.oclAtomByMolfileIndex.get(3)!)).toBe("C");
+  });
+
+  it("maps nonconsecutive V3000 atom IDs rather than atom-block positions", () => {
+    const parsed = parseNmredataMolecule(V3000_NONCONSECUTIVE);
+    expect(parsed).toBeDefined();
+    expect([...parsed!.oclAtomByMolfileIndex.keys()].sort((a, b) => a - b)).toEqual([10, 20]);
+    expect(parsed?.oclAtomByMolfileIndex.has(1)).toBe(false);
+    expect(parsed?.molecule.getAtomLabel(parsed.oclAtomByMolfileIndex.get(20)!)).toBe("O");
+  });
+
+  it("assembles continued V3000 atom records before tokenizing lists, quotes, and properties", () => {
+    const molfile = V3000_NONCONSECUTIVE.replace(
+      "M  V30 10 C 0.866 0 0 0",
+      'M  V30 10 NOT [C,N] 0.866 0 0 -\nM  V30 0 LABEL="quoted value" RGROUPS=(2 1 2)'
+    );
+    const parsed = parseNmredataMolecule(molfile);
+
+    expect(parsed).toBeDefined();
+    expect(parsed?.oclAtomByMolfileIndex.size).toBe(2);
+    expect(parsed?.molecule.getAtomX(parsed.oclAtomByMolfileIndex.get(10)!)).toBeCloseTo(0.866);
+    expect(parsed?.molecule.getAtomLabel(parsed.oclAtomByMolfileIndex.get(20)!)).toBe("O");
   });
 });

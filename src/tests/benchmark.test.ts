@@ -27,6 +27,30 @@ function makeSd(smiles: string, carbons: { atom: number; shift: number }[]): str
   return `${molfile}\n> <NMREDATA_ASSIGNMENT>\n${assignment}\n\n> <NMREDATA_1D_13C>\n${spectrum}\n\n$$$$\n`;
 }
 
+function makeSingleAssignmentSd(
+  molfile: string,
+  nucleus: "13C" | "1H",
+  atoms: readonly number[],
+  shift: number
+): string {
+  const spectrumTag = nucleus === "13C" ? "NMREDATA_1D_13C" : "NMREDATA_1D_1H";
+  return `${molfile}\n> <NMREDATA_ASSIGNMENT>\ns0, ${shift}, ${atoms.join(" ")}\\\n\n> <${spectrumTag}>\n${shift}, L=s0\\\n\n$$$$\n`;
+}
+
+function makeMethylHydrogenAssignmentSd(shift: number): string {
+  const molecule = OCL.Molecule.fromSmiles("CCO");
+  molecule.addImplicitHydrogens();
+  molecule.ensureHelperArrays(OCL.Molecule.cHelperRings);
+  const methylHydrogens: number[] = [];
+  for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
+    if (molecule.getAtomicNo(atom) === 1 && molecule.getConnAtom(atom, 0) === 0) {
+      methylHydrogens.push(atom + 1);
+    }
+  }
+  expect(methylHydrogens).toHaveLength(3);
+  return makeSingleAssignmentSd(molecule.toMolfile(), "1H", methylHydrogens, shift);
+}
+
 /** One record assigning every carbon and every explicitly represented proton. */
 function makeExplicitHydrogenSd(smiles: string): string {
   const molecule = OCL.Molecule.fromSmiles(smiles);
@@ -125,6 +149,22 @@ describe("splitCorpusByStructure", () => {
 });
 
 describe("evaluateHeldOut", () => {
+  it("emits one row per distinct production class listed by an assignment", () => {
+    // These ppm values are synthetic labels used only to identify the test assignments.
+    const emptyDatabase = buildNmrDatabase("", { provenance: PROVENANCE, now: () => "t" });
+    const inequivalent = parseNmredataRecords(
+      makeSingleAssignmentSd(OCL.Molecule.fromSmiles("CCO").toMolfile(), "13C", [1, 2], 33.5)
+    );
+    const symmetric = parseNmredataRecords(
+      makeSingleAssignmentSd(OCL.Molecule.fromSmiles("CC").toMolfile(), "13C", [1, 2], 12.3)
+    );
+    const methylHydrogens = parseNmredataRecords(makeMethylHydrogenAssignmentSd(1.23));
+
+    expect(evaluateHeldOut(emptyDatabase, inequivalent)).toHaveLength(2);
+    expect(evaluateHeldOut(emptyDatabase, symmetric)).toHaveLength(1);
+    expect(evaluateHeldOut(emptyDatabase, methylHydrogens)).toHaveLength(1);
+  });
+
   it("matches production for every explicit-H carbon and proton assignment", async () => {
     const smilesFixtures = [
       "Cc1ccccc1",

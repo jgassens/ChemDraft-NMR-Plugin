@@ -3,12 +3,38 @@ import { describe, expect, it } from "vitest";
 
 import { buildNmrDatabase } from "../providers/ocl/buildDatabase";
 
+// Shift values in these generated fixtures are synthetic test labels, not literature values.
+
 /** Construct a minimal single-record NMReDATA SD from a SMILES + ¹³C atom assignments (1-based). */
 function makeSd(smiles: string, carbons: { atom: number; shift: number }[]): string {
   const molfile = OCL.Molecule.fromSmiles(smiles).toMolfile();
   const assignment = carbons.map((carbon, index) => `s${index}, ${carbon.shift}, ${carbon.atom}\\`).join("\n");
   const spectrum = carbons.map((carbon, index) => `${carbon.shift}, L=s${index}\\`).join("\n");
   return `${molfile}\n> <NMREDATA_ASSIGNMENT>\n${assignment}\n\n> <NMREDATA_1D_13C>\n${spectrum}\n\n$$$$\n`;
+}
+
+function makeSingleAssignmentSd(
+  molfile: string,
+  nucleus: "13C" | "1H",
+  atoms: readonly number[],
+  shift: number
+): string {
+  const spectrumTag = nucleus === "13C" ? "NMREDATA_1D_13C" : "NMREDATA_1D_1H";
+  return `${molfile}\n> <NMREDATA_ASSIGNMENT>\ns0, ${shift}, ${atoms.join(" ")}\\\n\n> <${spectrumTag}>\n${shift}, L=s0\\\n\n$$$$\n`;
+}
+
+function explicitMethylHydrogenSd(shift: number): string {
+  const molecule = OCL.Molecule.fromSmiles("CCO");
+  molecule.addImplicitHydrogens();
+  molecule.ensureHelperArrays(OCL.Molecule.cHelperRings);
+  const methylHydrogens: number[] = [];
+  for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
+    if (molecule.getAtomicNo(atom) === 1 && molecule.getConnAtom(atom, 0) === 0) {
+      methylHydrogens.push(atom + 1);
+    }
+  }
+  expect(methylHydrogens).toHaveLength(3);
+  return makeSingleAssignmentSd(molecule.toMolfile(), "1H", methylHydrogens, shift);
 }
 
 const PROVENANCE = { name: "test", version: "1", source: "test", license: "test", attribution: "test", note: "test" };
@@ -82,5 +108,49 @@ describe("buildNmrDatabase", () => {
 
     expect(database.provenance.inputSha256).toBe("ab".repeat(32));
     expect(database.provenance.inputBytes).toBe(1234);
+  });
+
+  it("adds one observation for each inequivalent carbon listed by one assignment", () => {
+    const shift = 33.5;
+    const molfile = OCL.Molecule.fromSmiles("CCO").toMolfile();
+    const database = buildNmrDatabase(makeSingleAssignmentSd(molfile, "13C", [1, 2], shift), {
+      provenance: PROVENANCE,
+      now: () => "t"
+    });
+
+    const deepest = Object.values(database.entries).filter(
+      (entry) => entry.nucleus === "13C" && entry.sphere === 4 && entry.median === shift
+    );
+    expect(deepest).toHaveLength(2);
+    expect(deepest.map((entry) => entry.n).sort()).toEqual([1, 1]);
+  });
+
+  it("counts symmetric carbons listed by one assignment only once", () => {
+    const shift = 12.3;
+    const molfile = OCL.Molecule.fromSmiles("CC").toMolfile();
+    const database = buildNmrDatabase(makeSingleAssignmentSd(molfile, "13C", [1, 2], shift), {
+      provenance: PROVENANCE,
+      now: () => "t"
+    });
+
+    const deepest = Object.values(database.entries).filter(
+      (entry) => entry.nucleus === "13C" && entry.sphere === 4 && entry.median === shift
+    );
+    expect(deepest).toHaveLength(1);
+    expect(deepest[0].n).toBe(1);
+  });
+
+  it("counts three explicitly listed methyl hydrogens only once", () => {
+    const shift = 1.23;
+    const database = buildNmrDatabase(explicitMethylHydrogenSd(shift), {
+      provenance: PROVENANCE,
+      now: () => "t"
+    });
+
+    const deepest = Object.values(database.entries).filter(
+      (entry) => entry.nucleus === "1H" && entry.sphere === 4 && entry.median === shift
+    );
+    expect(deepest).toHaveLength(1);
+    expect(deepest[0].n).toBe(1);
   });
 });
