@@ -17,6 +17,8 @@ const J_AROMATIC_ORTHO = 7.8;
 const J_AROMATIC_META = 1.6;
 const J_ALDEHYDE = 2.4;
 const J_MERGE_TOLERANCE = 0.6;
+/** Couplings smaller than this are not reported by this deliberately coarse model. */
+export const PROTON_COUPLING_REPORTING_THRESHOLD_HZ = 1.0;
 // O–H / N–H / S–H protons are usually exchange-decoupled and don't produce observable splitting.
 const LABILE_PARTNER_ELEMENTS = new Set([7, 8, 16]);
 
@@ -73,6 +75,57 @@ export function computeMultiplet(
   return buildMultiplet(couplings);
 }
 
+/**
+ * Return the J value this model reports between protons on two heavy-atom hosts. A zero means that
+ * this topology model has no coupling at or above its reporting threshold for the pair. Keeping
+ * this pairwise form alongside `computeMultiplet()` lets magnetic-equivalence checks compare the
+ * complete coupling vector rather than infer it from already-merged multiplet groups.
+ */
+export function reportedProtonCouplingHz(
+  molecule: OCL.Molecule,
+  firstHost: number,
+  secondHost: number
+): number {
+  if (
+    firstHost === secondHost ||
+    molecule.getAtomicNo(firstHost) === 1 ||
+    molecule.getAtomicNo(secondHost) === 1 ||
+    molecule.getAllHydrogens(firstHost) <= 0 ||
+    molecule.getAllHydrogens(secondHost) <= 0 ||
+    LABILE_PARTNER_ELEMENTS.has(molecule.getAtomicNo(firstHost)) ||
+    LABILE_PARTNER_ELEMENTS.has(molecule.getAtomicNo(secondHost))
+  ) {
+    return 0;
+  }
+
+  molecule.ensureHelperArrays(OCL.Molecule.cHelperRings);
+  let estimated = 0;
+  if (areBonded(molecule, firstHost, secondHost)) {
+    if (molecule.isAromaticAtom(firstHost) && molecule.isAromaticAtom(secondHost)) {
+      estimated = J_AROMATIC_ORTHO;
+    } else if (isAldehydeCarbon(molecule, firstHost) || isAldehydeCarbon(molecule, secondHost)) {
+      estimated = J_ALDEHYDE;
+    } else {
+      estimated = J_VICINAL;
+    }
+  } else if (
+    molecule.isAromaticAtom(firstHost) &&
+    molecule.isAromaticAtom(secondHost) &&
+    aromaticMetaPartners(molecule, firstHost).includes(secondHost)
+  ) {
+    estimated = J_AROMATIC_META;
+  }
+
+  return estimated >= PROTON_COUPLING_REPORTING_THRESHOLD_HZ ? estimated : 0;
+}
+
+function areBonded(molecule: OCL.Molecule, first: number, second: number): boolean {
+  for (let connection = 0; connection < molecule.getConnAtoms(first); connection += 1) {
+    if (molecule.getConnAtom(first, connection) === second) return true;
+  }
+  return false;
+}
+
 function isAldehydeCarbon(molecule: OCL.Molecule, atom: number): boolean {
   if (molecule.getAtomicNo(atom) !== 6 || molecule.getAllHydrogens(atom) !== 1) {
     return false;
@@ -106,7 +159,9 @@ function aromaticMetaPartners(molecule: OCL.Molecule, host: number): number[] {
 /** Merge couplings with near-equal J into groups, then label by the first-order pattern. */
 function buildMultiplet(couplings: readonly NmrCoupling[]): NmrMultiplet {
   const merged: NmrCoupling[] = [];
-  for (const coupling of [...couplings].sort((a, b) => b.jHz - a.jHz)) {
+  for (const coupling of [...couplings]
+    .filter((candidate) => candidate.jHz >= PROTON_COUPLING_REPORTING_THRESHOLD_HZ)
+    .sort((a, b) => b.jHz - a.jHz)) {
     const existing = merged.find((m) => m.kind === coupling.kind && Math.abs(m.jHz - coupling.jHz) <= J_MERGE_TOLERANCE);
     if (existing) {
       existing.partnerCount += coupling.partnerCount;

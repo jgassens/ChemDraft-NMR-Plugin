@@ -16,7 +16,7 @@ import { NmrError, NmrErrorCodes } from "../../domain/errors";
 import { fingerprintStructureInput } from "../../domain/fingerprint";
 import { nmrWarning, NmrWarningCodes, type NmrPredictionWarning } from "../../domain/warnings";
 import { normalizeStructure } from "../../application/normalizeStructure";
-import { computeMultiplet } from "./coupling";
+import { computeMultiplet, reportedProtonCouplingHz } from "./coupling";
 import { MAX_SPHERES } from "./environmentCode";
 import { estimateCarbonShiftWithApplicability } from "./functionalGroupFallback";
 import { estimateProtonIncrement } from "./incrementEstimator";
@@ -94,6 +94,19 @@ export class OclHosePredictor implements NmrPredictor {
     const resonances: NmrResonance[] = [];
     const totals: PredictionCounts = { estimated: 0, omitted: 0 };
     const lookupContext = prepareProductionLookup(molecule, maxSpheres);
+    const diastereotopy = runDisclosureCheck(warnings, "stereochemical", () =>
+      componentLocalDiastereotopy(molecule)
+    );
+    if (diastereotopy?.unavailableHydrogenHosts.length) {
+      warnings.push({
+        code: "NMR_DISCLOSURE_ANALYSIS_UNAVAILABLE",
+        message:
+          "The diastereotopic-hydrogen disclosure check could not run for some CH2 sites; predicted shifts are still reported.",
+        severity: "warning",
+        atomIndices: diastereotopy.unavailableHydrogenHosts,
+        details: { check: "diastereotopic-hydrogen", partial: true }
+      });
+    }
 
     for (const nucleus of dedupeNuclei(request.nuclei)) {
       throwIfAborted(signal);
@@ -108,24 +121,39 @@ export class OclHosePredictor implements NmrPredictor {
               resonances,
               warnings
             )
-          : predictProton(this.database, molecule, lookupContext, request, resonances, warnings);
+          : predictProton(
+              this.database,
+              molecule,
+              lookupContext,
+              request,
+              resonances,
+              warnings,
+              diastereotopy
+            );
       totals.estimated += counts.estimated;
       totals.omitted += counts.omitted;
       const nucleusResonances = resonances.slice(resonanceStart);
-      const specificallyWarnedMethylAtoms = warnPotentiallyDiastereotopicMethyls(
-        molecule,
-        nucleus,
-        nucleusResonances,
-        warnings
-      );
-      warnStereochemicallyDistinctMergedClasses(
-        molecule,
-        nucleus,
-        nucleusResonances,
-        specificallyWarnedMethylAtoms,
-        warnings
-      );
-      if (nucleus === "1H") warnLikelySecondOrderPatterns(molecule, nucleusResonances, warnings);
+      const specificallyWarnedMethylAtoms =
+        runDisclosureCheck(warnings, "potentially diastereotopic methyl", () =>
+          warnPotentiallyDiastereotopicMethyls(molecule, nucleus, nucleusResonances, warnings)
+        ) ?? new Set<number>();
+      if (diastereotopy) {
+        runDisclosureCheck(warnings, "stereochemically merged class", () =>
+          warnStereochemicallyDistinctMergedClasses(
+            molecule,
+            nucleus,
+            nucleusResonances,
+            specificallyWarnedMethylAtoms,
+            warnings,
+            diastereotopy.atomIds
+          )
+        );
+      }
+      if (nucleus === "1H") {
+        runDisclosureCheck(warnings, "magnetic-equivalence", () =>
+          warnLikelySecondOrderPatterns(molecule, nucleusResonances, warnings)
+        );
+      }
     }
 
     if (totals.estimated > 0) {
@@ -228,18 +256,19 @@ function predictProton(
   lookupContext: ProductionLookupContext,
   request: NmrPredictionRequest,
   resonances: NmrResonance[],
-  warnings: NmrPredictionWarning[]
+  warnings: NmrPredictionWarning[],
+  diastereotopy: ComponentLocalDiastereotopy | undefined
 ): PredictionCounts {
   let estimated = 0;
   let omitted = 0;
   let omittedLabile = 0;
 
-  const potentiallyDiastereotopic = potentiallyDiastereotopicMethyleneAtoms(molecule);
+  const potentiallyDiastereotopic = potentiallyDiastereotopicMethyleneAtoms(molecule, diastereotopy);
   if (potentiallyDiastereotopic.length > 0) {
     warnings.push(
       nmrWarning(
         NmrWarningCodes.PotentiallyDiastereotopicHydrogens,
-        `${potentiallyDiastereotopic.length} methylene site(s) in this stereogenic structure may contain chemically nonequivalent hydrogens; when predicted, this model reports one carbon-hosted shift per site and does not predict separate diastereotopic values.`,
+        `${potentiallyDiastereotopic.length} methylene site(s) have distinct OpenChemLib diastereotopic hydrogen IDs; when predicted, this model reports one carbon-hosted shift per site and does not predict separate diastereotopic values.`,
         {
           severity: "info",
           atomIndices: potentiallyDiastereotopic,
@@ -345,18 +374,17 @@ function protonCrossCheckReason(
   return "routine-applicability";
 }
 
-/** A CH₂ group in a constitutionally stereogenic molecule may contain a diastereotopic proton pair.
- * This is a disclosure detector only: it never splits the host or fabricates two shifts. */
-function potentiallyDiastereotopicMethyleneAtoms(molecule: OCL.Molecule): number[] {
-  const atomsInStereogenicComponents = stereogenicComponentAtoms(molecule);
-
+/** A CH₂ whose two explicit, component-local OCL hydrogen IDs differ is diastereotopic. This is a
+ * disclosure detector only: it never splits the host or fabricates two shifts. */
+function potentiallyDiastereotopicMethyleneAtoms(
+  molecule: OCL.Molecule,
+  diastereotopy: ComponentLocalDiastereotopy | undefined
+): number[] {
+  if (!diastereotopy) return [];
   const methylenes: number[] = [];
   for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
-    if (
-      atomsInStereogenicComponents.has(atom) &&
-      molecule.getAtomicNo(atom) === 6 &&
-      molecule.getAllHydrogens(atom) === 2
-    ) {
+    const hydrogenIds = diastereotopy.hydrogenIdsByHost.get(atom);
+    if (molecule.getAtomicNo(atom) === 6 && hydrogenIds?.length === 2 && hydrogenIds[0] !== hydrogenIds[1]) {
       methylenes.push(atom);
     }
   }
@@ -423,9 +451,9 @@ function warnStereochemicallyDistinctMergedClasses(
   nucleus: NmrNucleus,
   resonances: readonly NmrResonance[],
   specificallyWarnedMethylAtoms: ReadonlySet<number>,
-  warnings: NmrPredictionWarning[]
+  warnings: NmrPredictionWarning[],
+  diastereotopicIds: readonly (string | undefined)[]
 ): void {
-  const diastereotopicIds = componentLocalDiastereotopicAtomIds(molecule);
   const disclosedAtoms = new Set<number>();
   let mergedClassCount = 0;
 
@@ -453,21 +481,43 @@ function warnStereochemicallyDistinctMergedClasses(
   );
 }
 
-/** OCL's molecule-wide diastereotopic IDs allow a stereocenter in one disconnected component to
- * distinguish enantiotopic atoms in another. Compute the IDs on isolated components instead, using
- * and validating OCL's explicit source-to-component atom map before returning input-indexed IDs. */
-function componentLocalDiastereotopicAtomIds(molecule: OCL.Molecule): string[] {
+interface ComponentLocalDiastereotopy {
+  /** Input-indexed IDs for source atoms; newly generated explicit H atoms have no input entries. */
+  atomIds: readonly (string | undefined)[];
+  /** IDs of the two generated explicit hydrogens for every input CH₂ carbon. */
+  hydrogenIdsByHost: ReadonlyMap<number, readonly string[]>;
+  /** CH₂ hosts for which OCL did not generate exactly two analyzable explicit hydrogens. */
+  unavailableHydrogenHosts: readonly number[];
+}
+
+/**
+ * OCL's molecule-wide diastereotopic IDs allow a stereocenter in one disconnected component to
+ * distinguish enantiotopic atoms in another. Its partial-copy helper also drops ordinary explicit
+ * hydrogens while leaving stale map entries. Instead, delete the other components from a full copy,
+ * which preserves every explicit H and returns a validated old-to-new map, then generate any still
+ * implicit hydrogens before requesting IDs. This gives every CH₂ pair real hydrogen IDs to compare.
+ */
+function componentLocalDiastereotopy(molecule: OCL.Molecule): ComponentLocalDiastereotopy {
   const atomCount = molecule.getAllAtoms();
   const componentByAtom = connectedComponentNumbers(molecule);
   const componentCount = Math.max(...componentByAtom) + 1;
   const inputIndexedIds = Array<string | undefined>(atomCount).fill(undefined);
+  const hydrogenIdsByHost = new Map<number, readonly string[]>();
+  const unavailableHydrogenHosts: number[] = [];
 
   for (let componentIndex = 0; componentIndex < componentCount; componentIndex += 1) {
     const includedAtoms = componentByAtom.map((component) => component === componentIndex);
-    const component = new OCL.Molecule(atomCount, molecule.getAllBonds());
-    const inputToComponent = Array<number>(atomCount).fill(-1);
-    molecule.copyMoleculeByAtoms(component, includedAtoms, false, inputToComponent);
+    const component = molecule.getCompactCopy();
+    for (let atom = 0; atom < atomCount; atom += 1) {
+      if (!includedAtoms[atom]) component.markAtomForDeletion(atom);
+    }
+    const deletionMap = component.deleteMarkedAtomsAndBonds() as number[] | null;
+    const inputToComponent = deletionMap ?? Array.from({ length: atomCount }, (_, atom) => atom);
     assertComponentAtomMapping(molecule, component, includedAtoms, inputToComponent);
+    component.addImplicitHydrogens();
+    // addImplicitHydrogens() invalidates connectivity, but getDiastereotopicAtomIDs() may satisfy
+    // its own helper needs without rebuilding the explicit-H neighbour lists we inspect below.
+    component.ensureHelperArrays(OCL.Molecule.cHelperNeighbours);
 
     const componentIds = component.getDiastereotopicAtomIDs();
     for (let atom = 0; atom < atomCount; atom += 1) {
@@ -478,15 +528,32 @@ function componentLocalDiastereotopicAtomIds(molecule: OCL.Molecule): string[] {
         throw new Error(`OpenChemLib did not return a diastereotopic ID for mapped atom ${atom}.`);
       }
       inputIndexedIds[atom] = id;
+
+      if (molecule.getAtomicNo(atom) !== 6 || molecule.getAllHydrogens(atom) !== 2) continue;
+      const hydrogenIds: string[] = [];
+      for (let connection = 0; connection < component.getAllConnAtoms(componentAtom); connection += 1) {
+        const neighbor = component.getConnAtom(componentAtom, connection);
+        if (component.getAtomicNo(neighbor) !== 1) continue;
+        const hydrogenId = componentIds[neighbor];
+        if (hydrogenId === undefined) {
+          throw new Error(`OpenChemLib did not return an ID for a hydrogen on mapped atom ${atom}.`);
+        }
+        hydrogenIds.push(hydrogenId);
+      }
+      if (hydrogenIds.length !== 2) {
+        unavailableHydrogenHosts.push(atom);
+        continue;
+      }
+      hydrogenIdsByHost.set(atom, hydrogenIds);
     }
   }
 
-  return inputIndexedIds.map((id, atom) => {
-    if (id === undefined) {
+  for (let atom = 0; atom < atomCount; atom += 1) {
+    if (molecule.getAtomicNo(atom) !== 1 && inputIndexedIds[atom] === undefined) {
       throw new Error(`OpenChemLib component mapping did not cover input atom ${atom}.`);
     }
-    return id;
-  });
+  }
+  return { atomIds: inputIndexedIds, hydrogenIdsByHost, unavailableHydrogenHosts };
 }
 
 function assertComponentAtomMapping(
@@ -520,18 +587,19 @@ function assertComponentAtomMapping(
 }
 
 /** The scalar first-order display intentionally removes couplings within an emitted chemical class.
- * Symmetric substituted aromatic systems can nevertheless be strongly coupled (AA'XX'-like), so
- * explicitly disclose that the displayed pattern is not a spin analysis. */
+ * Disclose exactly those classes whose members have different reported J values to an outside
+ * proton in the same connected spin system. */
 function warnLikelySecondOrderPatterns(
   molecule: OCL.Molecule,
   resonances: readonly NmrResonance[],
   warnings: NmrPredictionWarning[]
 ): void {
+  const { protonHosts, spinSystemByHost } = protonSpinSystems(molecule);
   const disclosedAtoms = new Set<number>();
   let patternClassCount = 0;
   for (const resonance of resonances) {
     const atoms = resonance.atomRefs.map((ref) => ref.sourceAtomIndex);
-    if (!isLikelySecondOrderClass(molecule, atoms)) continue;
+    if (!isLikelySecondOrderClass(molecule, atoms, protonHosts, spinSystemByHost)) continue;
     patternClassCount += 1;
     for (const atom of atoms) disclosedAtoms.add(atom);
   }
@@ -551,32 +619,85 @@ function warnLikelySecondOrderPatterns(
   );
 }
 
-function isLikelySecondOrderClass(molecule: OCL.Molecule, atoms: readonly number[]): boolean {
-  // An isochronous set on its own is observed through its total-spin operator, so internal scalar
-  // couplings cannot make its single line second order. Require a coupling that this model actually
-  // estimates to a proton-bearing host outside the emitted chemical class.
-  if (!atoms.some((atom) => computeMultiplet(molecule, atom, atoms).couplings.length > 0)) return false;
+function isLikelySecondOrderClass(
+  molecule: OCL.Molecule,
+  atoms: readonly number[],
+  protonHosts: readonly number[],
+  spinSystemByHost: ReadonlyMap<number, number>
+): boolean {
+  if (atoms.length < 2) return false;
+  const chemicalClass = new Set(atoms);
 
-  if (atoms.length > 1 && atoms.every((atom) => molecule.isAromaticAtom(atom))) {
-    const chemicalClass = new Set(atoms);
-    const aromaticSystem = new Set<number>();
-    const pending = [atoms[0]];
-    aromaticSystem.add(atoms[0]);
-    while (pending.length > 0) {
-      const atom = pending.pop()!;
-      for (let connection = 0; connection < molecule.getConnAtoms(atom); connection += 1) {
-        const neighbor = molecule.getConnAtom(atom, connection);
-        if (!molecule.isAromaticAtom(neighbor) || aromaticSystem.has(neighbor)) continue;
-        aromaticSystem.add(neighbor);
-        pending.push(neighbor);
-      }
+  for (const spinSystem of new Set(atoms.map((atom) => spinSystemByHost.get(atom)))) {
+    const members = atoms.filter((atom) => spinSystemByHost.get(atom) === spinSystem);
+    if (members.length < 2) continue;
+    const externalHosts = protonHosts.filter(
+      (atom) => spinSystemByHost.get(atom) === spinSystem && !chemicalClass.has(atom)
+    );
+    let couplesOutside = false;
+    let hasDifferentCouplingVector = false;
+
+    for (const externalHost of externalHosts) {
+      const reportedJs = members.map((member) =>
+        reportedProtonCouplingHz(molecule, member, externalHost)
+      );
+      if (reportedJs.some((jHz) => jHz > 0)) couplesOutside = true;
+      if (new Set(reportedJs).size > 1) hasDifferentCouplingVector = true;
     }
-    // A fully protonated homogeneous ring (benzene) is the simple Aₙ case. A repeated class in a
-    // substituted/fused aromatic system is conservatively disclosed as potentially AA'XX'-like.
-    if ([...aromaticSystem].some((atom) => !chemicalClass.has(atom))) return true;
+    if (couplesOutside && hasDifferentCouplingVector) return true;
   }
 
   return false;
+}
+
+/** Connected components of the model's reported-J graph, not merely of the molecular bond graph. */
+function protonSpinSystems(molecule: OCL.Molecule): {
+  protonHosts: readonly number[];
+  spinSystemByHost: ReadonlyMap<number, number>;
+} {
+  const protonHosts = Array.from({ length: molecule.getAllAtoms() }, (_, atom) => atom).filter(
+    (atom) => molecule.getAtomicNo(atom) !== 1 && molecule.getAllHydrogens(atom) > 0
+  );
+  const spinSystemByHost = new Map<number, number>();
+  let nextSpinSystem = 0;
+
+  for (const root of protonHosts) {
+    if (spinSystemByHost.has(root)) continue;
+    spinSystemByHost.set(root, nextSpinSystem);
+    const pending = [root];
+    while (pending.length > 0) {
+      const host = pending.pop()!;
+      for (const partner of protonHosts) {
+        if (spinSystemByHost.has(partner) || reportedProtonCouplingHz(molecule, host, partner) === 0) {
+          continue;
+        }
+        spinSystemByHost.set(partner, nextSpinSystem);
+        pending.push(partner);
+      }
+    }
+    nextSpinSystem += 1;
+  }
+  return { protonHosts, spinSystemByHost };
+}
+
+/** Disclosure calculations are advisory. If OCL cannot complete one, preserve the shifts and state
+ * plainly which check was unavailable rather than turning a useful prediction into an exception. */
+function runDisclosureCheck<T>(
+  warnings: NmrPredictionWarning[],
+  check: string,
+  analyze: () => T
+): T | undefined {
+  try {
+    return analyze();
+  } catch (cause) {
+    warnings.push({
+      code: "NMR_DISCLOSURE_ANALYSIS_UNAVAILABLE",
+      message: `The ${check} disclosure check could not run; predicted shifts are still reported.`,
+      severity: "warning",
+      details: { check, cause: cause instanceof Error ? cause.message : String(cause) }
+    });
+    return undefined;
+  }
 }
 
 function formatAtoms(molecule: OCL.Molecule, atoms: readonly number[]): string {

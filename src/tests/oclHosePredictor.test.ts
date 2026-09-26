@@ -94,6 +94,20 @@ function predictMolfile(predictor: OclHosePredictor, smiles: string, nucleus: Nm
   });
 }
 
+function predictExplicitHydrogenMolfile(
+  predictor: OclHosePredictor,
+  smiles: string,
+  nuclei: readonly NmrNucleus[]
+) {
+  const molecule = OCL.Molecule.fromSmiles(smiles);
+  molecule.addImplicitHydrogens();
+  return predictor.predict({
+    structure: { format: "molfile-v2000", value: molecule.toMolfile() },
+    nuclei,
+    options: OPTIONS
+  });
+}
+
 function resonanceClasses(result: Awaited<ReturnType<typeof predictMolfile>>): Map<string, number> {
   return new Map(
     result.resonances.map((resonance) => [
@@ -152,6 +166,44 @@ describe("OclHosePredictor", () => {
         .sort(([firstPpm], [secondPpm]) => firstPpm - secondPpm);
 
     expect(sortedShifts(first)).toEqual(sortedShifts(second));
+  });
+
+  it.each(["13C", "1H"] as const)(
+    "returns %s shifts for an explicit-hydrogen CCO.O mixture without aborting disclosure analysis",
+    async (nucleus) => {
+      const result = await predictExplicitHydrogenMolfile(
+        new OclHosePredictor({ now: () => "t" }),
+        "CCO.O",
+        [nucleus]
+      );
+
+      expect(result.resonances.some((resonance) => resonance.nucleus === nucleus)).toBe(true);
+      expect(result.warnings.map((warning) => warning.code)).not.toContain(
+        "NMR_DISCLOSURE_ANALYSIS_UNAVAILABLE"
+      );
+    }
+  );
+
+  it.each([
+    ["single component", "CCO"],
+    ["stereocentre", "C[C@H](F)CO"]
+  ])("handles an explicit-hydrogen %s molecule", async (_name, smiles) => {
+    const result = await predictExplicitHydrogenMolfile(
+      new OclHosePredictor({ now: () => "t" }),
+      smiles,
+      ["13C", "1H"]
+    );
+
+    expect(result.resonances.some((resonance) => resonance.nucleus === "13C")).toBe(true);
+    expect(result.resonances.some((resonance) => resonance.nucleus === "1H")).toBe(true);
+    expect(result.warnings.map((warning) => warning.code)).not.toContain(
+      "NMR_DISCLOSURE_ANALYSIS_UNAVAILABLE"
+    );
+    if (smiles.includes("@")) {
+      expect(result.warnings.map((warning) => warning.code)).toContain(
+        "NMR_POTENTIALLY_DIASTEREOTOPIC_HYDROGENS"
+      );
+    }
   });
 
   it("documents OCL diastereotopic IDs used by the stereo-merge disclosure", () => {
@@ -372,8 +424,11 @@ describe("OclHosePredictor", () => {
     expect(result.resonances.every((resonance) => resonance.crossCheck === undefined)).toBe(true);
   });
 
-  it("warns that methylene hydrogens in a stereogenic structure may be nonequivalent without splitting them", async () => {
-    const smiles = "C[C@H](F)CO";
+  it.each([
+    ["a stereocentre-containing chain", "C[C@H](F)CO", [3]],
+    ["terminal vinyl CH2 in propene", "CC=C", [2]],
+    ["ring CH2 sites in methylcyclohexane", "CC1CCCCC1", [2, 3, 4, 5, 6]]
+  ] as const)("warns for diastereotopic hydrogens at %s without splitting them", async (_name, smiles, atoms) => {
     const result = await predict(
       new OclHosePredictor({ database: databaseAtSphere(smiles, "1H", 2) }),
       smiles,
@@ -382,14 +437,29 @@ describe("OclHosePredictor", () => {
     const warning = result.warnings.find(
       (candidate) => candidate.code === "NMR_POTENTIALLY_DIASTEREOTOPIC_HYDROGENS"
     );
-    expect(warning?.atomIndices).toEqual([3]);
+    expect(warning?.atomIndices).toEqual(atoms);
+    expect(warning?.message).toContain("distinct OpenChemLib diastereotopic hydrogen IDs");
     expect(warning?.message).toContain("does not predict separate diastereotopic values");
-    expect(result.resonances.some((resonance) => resonance.atomRefs.some((ref) => ref.sourceAtomIndex === 3))).toBe(true);
-    expect(result.resonances.every((resonance) => resonance.atomRefs.length === 1)).toBe(true);
+    for (const atom of atoms) {
+      expect(
+        result.resonances.filter((resonance) =>
+          resonance.atomRefs.some((ref) => ref.sourceAtomIndex === atom)
+        )
+      ).toHaveLength(1);
+    }
   });
 
-  it("does not raise the diastereotopic disclosure for an achiral acyclic structure", async () => {
-    const result = await predict(new OclHosePredictor({ database: databaseAtSphere("CCO", "1H", 2) }), "CCO", "1H");
+  it.each([
+    ["ethylene", "C=C"],
+    ["dichloromethane", "C(Cl)Cl"],
+    ["ethanol", "CCO"],
+    ["diethyl ether", "CCOCC"]
+  ])("does not raise the diastereotopic-hydrogen disclosure for %s", async (_name, smiles) => {
+    const result = await predict(
+      new OclHosePredictor({ database: databaseAtSphere(smiles, "1H", 2) }),
+      smiles,
+      "1H"
+    );
     expect(result.warnings.map((warning) => warning.code)).not.toContain(
       "NMR_POTENTIALLY_DIASTEREOTOPIC_HYDROGENS"
     );
@@ -606,6 +676,9 @@ M  END
     );
     expect(byAtom.get(0)).toBe("t");
     expect(byAtom.get(1)).toBe("q");
+    expect(result.warnings.map((warning) => warning.code)).not.toContain(
+      "NMR_SECOND_ORDER_PATTERN_LIKELY"
+    );
   });
 
   it("keeps p-xylene's isolated isochronous aromatic class as a singlet without a second-order warning", async () => {
@@ -626,8 +699,13 @@ M  END
 
   it.each([
     ["p-bromochlorobenzene", "Clc1ccc(Br)cc1", [2, 3, 6, 7]],
-    ["1,2-dichlorobenzene", "Clc1ccccc1Cl", [2, 3, 4, 5]]
-  ] as const)("discloses coupled second-order aromatic classes for %s", async (_name, smiles, atomIndices) => {
+    ["1,2-dichlorobenzene", "Clc1ccccc1Cl", [2, 3, 4, 5]],
+    ["(R,R)-2,3-dibromobutane", "C[C@H](Br)[C@H](Br)C", [0, 1, 3, 5]],
+    ["meso-2,3-dibromobutane", "C[C@H](Br)[C@@H](Br)C", [0, 1, 3, 5]],
+    ["(E)-2-butene", "C/C=C/C", [0, 1, 2, 3]],
+    ["(Z)-2-butene", "C/C=C\\C", [0, 1, 2, 3]],
+    ["toluene", "Cc1ccccc1", [2, 3, 5, 6]]
+  ] as const)("discloses magnetically nonequivalent coupled classes for %s", async (_name, smiles, atomIndices) => {
     const result = await predict(
       new OclHosePredictor({ database: shallowDatabase(smiles, "1H", { median: 7 }) }),
       smiles,
@@ -639,6 +717,42 @@ M  END
     expect(warning?.atomIndices).toEqual(atomIndices);
     expect(warning?.message).toContain("full spin analysis may be needed");
     expect(warning?.message).toContain("not an exact pattern");
+  });
+
+  it.each([
+    ["p-xylene", "Cc1ccc(C)cc1"],
+    ["benzene", "c1ccccc1"],
+    ["cyclohexane", "C1CCCCC1"],
+    ["ethane", "CC"],
+    ["1,3-dichlorobenzene", "Clc1cccc(Cl)c1"],
+    ["ethanol", "CCO"]
+  ])("does not warn for magnetically equivalent or externally uncoupled classes in %s", async (_name, smiles) => {
+    const result = await predict(
+      new OclHosePredictor({ database: shallowDatabase(smiles, "1H", { median: 7 }) }),
+      smiles,
+      "1H"
+    );
+    expect(result.warnings.map((warning) => warning.code)).not.toContain(
+      "NMR_SECOND_ORDER_PATTERN_LIKELY"
+    );
+  });
+
+  it("keeps magnetic-equivalence analysis component-local when a molecule is duplicated", async () => {
+    const smiles = "Clc1cc(Br)ccc1F";
+    const predictor = (structure: string) =>
+      predict(
+        new OclHosePredictor({ database: shallowDatabase(structure, "1H", { median: 7 }) }),
+        structure,
+        "1H"
+      );
+    const [single, duplicated] = await Promise.all([predictor(smiles), predictor(`${smiles}.${smiles}`)]);
+
+    expect(single.warnings.map((warning) => warning.code)).not.toContain(
+      "NMR_SECOND_ORDER_PATTERN_LIKELY"
+    );
+    expect(duplicated.warnings.map((warning) => warning.code)).not.toContain(
+      "NMR_SECOND_ORDER_PATTERN_LIKELY"
+    );
   });
 
   it("does not disclose a geminal vinylic class without an estimated external proton coupling", async () => {

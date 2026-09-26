@@ -1,7 +1,11 @@
 import * as OCL from "openchemlib";
 import { describe, expect, it } from "vitest";
 
-import { computeMultiplet } from "../providers/ocl/coupling";
+import {
+  computeMultiplet,
+  PROTON_COUPLING_REPORTING_THRESHOLD_HZ,
+  reportedProtonCouplingHz
+} from "../providers/ocl/coupling";
 
 function multiplet(smiles: string, atom: number, equivalentHostAtoms: readonly number[] = [atom]) {
   const molecule = OCL.Molecule.fromSmiles(smiles);
@@ -52,5 +56,17 @@ describe("computeMultiplet (first-order topology)", () => {
     expect(multiplet("Cc1ccccc1", 2, [2, 6]).label).toBe("dd");
     expect(multiplet("Cc1ccccc1", 3, [3, 5]).label).toBe("t");
     expect(multiplet("Cc1ccccc1", 4).label).toBe("tt");
+  });
+
+  it("reports the pairwise J values used for magnetic-equivalence coupling vectors", () => {
+    const aromatic = OCL.Molecule.fromSmiles("Cc1ccccc1");
+    expect(reportedProtonCouplingHz(aromatic, 2, 3)).toBe(7.8);
+    expect(reportedProtonCouplingHz(aromatic, 2, 4)).toBe(1.6);
+    expect(reportedProtonCouplingHz(aromatic, 2, 5)).toBe(0);
+
+    const dibromobutane = OCL.Molecule.fromSmiles("C[C@H](Br)[C@H](Br)C");
+    expect(reportedProtonCouplingHz(dibromobutane, 1, 0)).toBe(7);
+    expect(reportedProtonCouplingHz(dibromobutane, 3, 0)).toBe(0);
+    expect(PROTON_COUPLING_REPORTING_THRESHOLD_HZ).toBeGreaterThan(0);
   });
 });

@@ -94,10 +94,12 @@ tree.
   applies; heteroarenes, imines, unsupported S/Si substituents, charge, isotopes,
   and radicals are never silently treated as generic carbon/alkyl chemistry. The
   HOSE value remains the stored primary value; the panel always shows the
-  HOSE/increment comparison state and reports exact coverage. In stereogenic
-  structures, potentially nonequivalent CH₂ hydrogens receive a disclosure rather
-  than fabricated separate shifts. When a carbon carries exactly two methyl
-  groups and the structure contains a stereocenter, the pair may be
+  HOSE/increment comparison state and reports exact coverage. Every CH₂ is checked
+  on a component-local copy with explicit hydrogens; when OpenChemLib assigns its
+  two hydrogens different diastereotopic IDs, they receive a disclosure rather
+  than fabricated separate shifts. This includes alkene and ring stereochemistry,
+  not only structures containing an atom stereocenter. When a carbon carries
+  exactly two methyl groups and the structure contains a stereocenter, the pair may be
   diastereotopic; the warning is shown for both ¹H and ¹³C, while the model keeps
   one shift for the pair and does not fabricate separate values. Tert-butyl
   groups are excluded. More generally, `NMR_STEREO_NONEQUIVALENT_MERGED`
@@ -105,11 +107,14 @@ tree.
   atom IDs differ; those atoms may give separate signals, but the model keeps the
   class merged and never copies or invents separate shifts. The older methyl code
   takes precedence for the same methyl atoms. The older CH₂-hydrogen code remains
-  separate because it describes two implicit hydrogens on one host atom, which
-  heavy-atom IDs cannot distinguish. `NMR_SECOND_ORDER_PATTERN_LIKELY` marks
-  chemically equivalent but potentially magnetically nonequivalent spin systems;
-  multiplicity and J are only first-order, topology-based estimates, and a full
-  spin analysis may be needed.
+  separate because it describes two hydrogens represented by one host atom rather
+  than multiple heavy-atom class members. `NMR_SECOND_ORDER_PATTERN_LIKELY` marks a
+  chemically equivalent proton class only when its members have different
+  model-reported J values to an outside proton in the same connected spin system;
+  an externally uncoupled isochronous set is not warned. Multiplicity and J are
+  only first-order, topology-based estimates, and a full spin analysis may be
+  needed. Disclosure checks are advisory: if OpenChemLib cannot complete one,
+  the predictor reports that limitation and still returns the available shifts.
 - **Fixture** — deterministic synthetic data used for tests and explicit fixture
   provider requests.
 
