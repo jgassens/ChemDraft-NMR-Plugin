@@ -11,8 +11,10 @@
  *   ├── manifest.json            id/name/version/apiVersion/permissions/contributions + built entry
  *   │                            filename + provenance — everything a host needs, no monorepo required
  *   ├── entry.js                 the built ES-module worker entry; calls runPluginWorker()
- *   ├── *.js                     whatever chunks the plugin needs (incl. the OCL worker + inlined DB),
- *   │                            CO-LOCATED
+ *   ├── *.js / *.json            every chunk, asset and nested-worker file the plugin needs (incl. the
+ *   │                            OCL worker + its resources JSON), ALL FLAT, CO-LOCATED — no `assets/`
+ *   │                            subdirectory, so a file both bundles reference (e.g. OpenChemLib's
+ *   │                            resources JSON) is emitted once and shared, not duplicated
  *   └── LICENSE                  verbatim from the plugin
  *   + <name>-<version>.zip.sha256  integrity only — never a trust gate (ADR-0029 §4)
  *
@@ -20,6 +22,10 @@
  *
  *  - **`worker.format: "es"`** — the default `iife` cannot code-split a worker bundle, and this plugin
  *    forces splitting (it spawns a nested OpenChemLib worker). This mirrors the desktop app's build.
+ *    `worker.rollupOptions.output` mirrors the main build's flat `[name]-[hash]` naming, because the
+ *    worker is bundled as its own separate Rollup pass and otherwise falls back to Vite's default
+ *    `assets/[name]-[hash][extname]` worker layout — which re-emits any file the main bundle already
+ *    emitted (identical content, different path) as a second, byte-identical copy.
  *  - **`base: "./"`** — the decisive one for a *relocatable* package. With a relative base every emitted
  *    reference (e.g. `new URL("nmrWorker-*.js", import.meta.url)`) resolves against the *importing
  *    module's own URL*, so the package works from whatever directory a host stages it into, provided its
@@ -120,12 +126,22 @@ interface ViteModule {
   build: (config: ViteInlineConfig) => Promise<unknown>;
 }
 
+interface ViteOutputFileNames {
+  format: "es";
+  entryFileNames: string;
+  chunkFileNames: string;
+  assetFileNames: string;
+}
+
 interface ViteInlineConfig {
   configFile: false;
   root: string;
   base: string;
   logLevel: "silent" | "error" | "warn" | "info";
-  worker: { format: "es" };
+  // `rollupOptions.output` here names the nested OpenChemLib worker bundle's own files, so both
+  // bundles emit identical output under the same flat `[name]-[hash]` scheme and de-duplicate
+  // byte-for-byte (see this file's header, "layout").
+  worker: { format: "es"; rollupOptions: { output: ViteOutputFileNames } };
   build: {
     outDir: string;
     emptyOutDir: boolean;
@@ -136,12 +152,7 @@ interface ViteInlineConfig {
     chunkSizeWarningLimit: number;
     rollupOptions: {
       input: string;
-      output: {
-        format: "es";
-        entryFileNames: string;
-        chunkFileNames: string;
-        assetFileNames: string;
-      };
+      output: ViteOutputFileNames;
     };
   };
 }
@@ -288,8 +299,22 @@ export async function packagePlugin(options: PackagePluginOptions): Promise<Pack
     // package is relocatable. See this file's header.
     base: "./",
     logLevel: "silent",
-    // ES-module workers: the default iife cannot code-split a worker bundle (M34).
-    worker: { format: "es" },
+    // ES-module workers: the default iife cannot code-split a worker bundle (M34). The worker
+    // bundle emits its own files next to itself (each `new URL(..., import.meta.url)` resolves
+    // relative to the importing module), so without this it uses Vite's default `assets/...`
+    // worker naming and re-emits anything the main bundle already emitted (e.g. the OpenChemLib
+    // resources JSON) as a byte-identical second copy under a different path.
+    worker: {
+      format: "es",
+      rollupOptions: {
+        output: {
+          format: "es",
+          entryFileNames: "[name]-[hash].js",
+          chunkFileNames: "[name]-[hash].js",
+          assetFileNames: "[name]-[hash][extname]"
+        }
+      }
+    },
     build: {
       outDir: staging,
       emptyOutDir: true,
