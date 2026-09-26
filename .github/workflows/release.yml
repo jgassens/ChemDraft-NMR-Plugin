@@ -35,6 +35,11 @@ jobs:
       - name: Build installable package
         run: npm run package
 
+      - name: Run required package tests
+        env:
+          CHEMDRAFT_REQUIRE_PACKAGE_TESTS: "1"
+        run: npx vitest run src/tests/packageAssetReferences.test.ts src/tests/packageIntegration.test.ts
+
       - name: Verify package integrity
         run: |
           cd dist/plugin-packages

@@ -1,7 +1,7 @@
 /**
- * NMR Web Worker entry point — runs the deterministic fixture provider off the main thread. Mirrors
- * the conformer worker's `globalThis` message wiring; all behavior lives in the testable
- * {@link createNmrWorkerHandler} core, so this file is never imported by tests (only instantiated as
+ * NMR Web Worker entry point — runs the production OCL predictor off the main thread (with an explicit
+ * fixture-provider option for tests). Mirrors the conformer worker's `globalThis` message wiring; all
+ * behavior lives in the testable {@link createNmrWorkerHandler} core, so this file is never imported by tests (only instantiated as
  * a worker via `new Worker(new URL("./nmrWorker.ts", import.meta.url))`).
  */
 import { createNmrWorkerHandler } from "./nmrWorkerCore";

@@ -16,10 +16,10 @@
  *     shared `AbortController`; its `onPanelClosed` runs here when the host forwards `panelClosed`, so a
  *     late result cannot revive a dismissed panel.
  *
- * The in-thread fallback mirrors the desktop's bundled entry: if a nested Worker cannot be created, the
- * OCL predictor runs in this same thread, lazily imported so its reference database stays a separate
- * chunk rather than being pulled into `entry.js`. The nested-worker verdict is reported from observed
- * evidence, never silently swallowed by this fallback.
+ * If a nested Worker cannot be created, this entry still uses the real OCL predictor in the same thread,
+ * lazily imported so its reference database stays a separate chunk rather than being pulled into
+ * `entry.js`. The nested-worker verdict is reported from observed evidence, never silently swallowed by
+ * this fallback.
  *
  * Stays inside the ADR-0028 SDK boundary (`@chemdraft/plugin-api` + this plugin's own relative modules).
  * It has a **top-level side effect** — it starts the worker runtime — so it is deliberately not

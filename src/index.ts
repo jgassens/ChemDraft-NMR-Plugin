@@ -4,6 +4,14 @@
  * M6 ships the provider core (domain contracts, normalization, fixture provider) and the manifest.
  * The worker (M7), command + analysis wiring (M8), and declarative panel report (M9) attach later.
  */
+
+/**
+ * CLI compatibility markers: constitutional-equivalence-grouping groups constitutionally equivalent
+ * nuclei; diastereotopic-disclosure identifies diastereotopic nuclei; truthful-spectrum-caption labels
+ * estimated spectrum data accurately. Entries are only ever added, never removed or renamed.
+ */
+export const NMR_PLUGIN_CAPABILITIES = ["constitutional-equivalence-grouping", "diastereotopic-disclosure", "truthful-spectrum-caption"] as const;
+
 export * from "./domain/contracts";
 export { NmrError, NmrErrorCodes, isNmrError, type NmrErrorCode } from "./domain/errors";
 export {

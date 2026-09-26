@@ -1,25 +1,17 @@
 // @vitest-environment node
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { describe, expect, it } from "vitest";
+import { expect, it } from "vitest";
 
 import { nmrPredictCarbonCommandId } from "../manifest";
-import packageJson from "../../package.json" with { type: "json" };
-
-// Loads the actual built `entry.js` from `npm run package`'s staging output (not the zip — Node has no
-// use for a zip, and the staging directory it comes from is byte-identical to what the zip contains)
-// and drives a real ¹³C prediction through it, playing the host side of the worker protocol. Skips
-// cleanly when that staging output hasn't been built in this checkout.
-const stagingDir = join(process.cwd(), "dist", "plugin-packages", `nmr-predictor-${packageJson.version}`);
-const entryPath = join(stagingDir, "entry.js");
+import { describePackageArtifact, extractPackageArtifact } from "./packageArtifact";
 
 interface WorkerMessage {
   kind: string;
   [key: string]: unknown;
 }
 
-describe.skipIf(!existsSync(entryPath))("packaged plugin entry, loaded and run for real", () => {
+describePackageArtifact("packaged plugin entry, loaded and run for real", (artifact) => {
   it("predicts toluene's 5 distinct resonances (13C) through the built package", async () => {
     // Loads a real 6MB predictor chunk and 1.3MB reference-data JSON from disk, then runs an actual
     // HOSE-fragment prediction, comfortably past vitest's 5s default under any normal machine load.
@@ -51,6 +43,8 @@ describe.skipIf(!existsSync(entryPath))("packaged plugin entry, loaded and run f
       return outbox.splice(0, outbox.length);
     };
 
+    const { directory, cleanup } = extractPackageArtifact(artifact);
+    const entryPath = join(directory, "entry.js");
     try {
       await import(pathToFileURL(entryPath).href);
 
@@ -97,6 +91,7 @@ describe.skipIf(!existsSync(entryPath))("packaged plugin entry, loaded and run f
       g.postMessage = previous.postMessage;
       g.addEventListener = previous.addEventListener;
       g.removeEventListener = previous.removeEventListener;
+      cleanup();
     }
   }, 20000);
 });
