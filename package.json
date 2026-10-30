@@ -1,6 +1,6 @@
 {
   "name": "@chemdraft/plugin-nmr-predictor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "license": "MIT",
   "description": "ChemDraft NMR shift predictor plugin — 1H/13C HOSE-fragment prediction over NMRShiftDB2-derived statistics.",
