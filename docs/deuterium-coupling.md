@@ -25,12 +25,25 @@ H and D groups cannot merge. Labels use 2n+1 lines for n equivalent D.
 and 1:3:6:7:6:3:1 for one, two and three D, and nests them with H–H splitting.
 Normalized line intensities sum to one, and coincident lines are combined.
 
-For shifts only, a mapped copy folds carbon-bound D to implicit H before
+For shifts only, a mapped copy folds D on every host, including O/N, to implicit H before
 canonical lookup and rule estimates. The original molecule supplies all proton
 counts, coupling topology, atom assignments and geometry. Shift tables and H–H
-constants are unchanged. `NMR_DEUTERIUM_SHIFT_NOT_MODELLED` names the zero-based
-carbon indices and explains that isotope shifts are not modelled, including for
-¹³C-only requests. The general isotope warning is also preserved.
+constants are unchanged. Thus CH₃CH₂OD retains the same CH₃ and CH₂ shifts as
+ethanol, and C₆D₅H retains one benzene-like proton. Remaining O–H/N–H environments
+use the same database coverage and fallback applicability as the unlabelled parent.
+`NMR_DEUTERIUM_SHIFT_NOT_MODELLED` identifies
+the explicit D atom indices and explains that D was treated as H for environment
+matching and rule estimates, with isotope shifts ignored at first order. This
+also applies to ¹³C-only requests. When ¹³C is requested, the additional
+`NMR_CARBON_DEUTERIUM_SPLITTING_NOT_MODELLED` warning names zero-based carbon
+indices carrying D: those carbon peaks are predicted, but C–D splitting and
+isotope shifts are not modelled. No C–D coupling has been added.
+
+Only mass-2 hydrogen receives this treatment. Other isotope labels, including
+¹³C, ¹⁵N and ³H/T, retain the prior unsupported-isotope warning and rule refusal;
+mixed D/other-isotope inputs still disclose the unsupported labels. No tritium
+couplings are introduced. The original carbon-bound H–D topology rules are
+unchanged: O–D/N–D, geminal and long-range H–D couplings remain unmodelled.
 
 The vendored panel SDK strictly accepts only `jHz` and `partnerCount` per
 coupling; its renderer assumes spin ½. The host keeps its selected spectrometer
@@ -66,6 +79,10 @@ resolved JCAMP multiplets requires a host change outside this plugin repository.
 `src/tests/deuterium.test.ts` covers both molfile encodings, ethanol-1,1-d₂,
 CH₃–CHD₂, CHD₂ counts, D-only hosts, spin-1 intensities, nested splitting,
 schema preservation, SDK-valid panel output, and the carbon isotope warning.
+`src/tests/deuteratedEnvironments.test.ts` adds ChemDraft-style explicit H +
+`M ISO` mass-2 molfile regressions for CH₃CH₂OD, CD₃OH and C₆D₅H, checks parent
+environment codes and fallback applicability, and exercises missing-database
+fallback for O–D. Normalization tests distinguish D from unsupported labels.
 Field regression cases reconstruct the host's binomial rendering contract at
 400, 600 and 800 MHz and require physical H–D and H–H spacing within 1e-9 Hz,
 unchanged line intensities, and matching alternative shifts. Standalone SVG
@@ -74,6 +91,26 @@ checks verify the serialized geometry at each field and reject invalid fields.
 before implementation for complete serialized results, reports and SVGs from
 ten existing ordinary structures. Those comparisons require byte-for-byte
 unchanged output, including shift values, H–H constants and property ordering.
+
+## Environment-matching regression measurements
+
+With the bundled database, median shifts and labile protons enabled:
+
+| Structure | ¹H centers (ppm, integration) | ¹³C centers (ppm) |
+| --- | --- | --- |
+| CH₃CH₂OD | 1.09 (3H), 3.50 (2H) | 13.93, 65.00 |
+| CD₃OH | OH unavailable (see below); no methyl protons | 65.00 |
+| C₆D₅H | 7.36 (1H), estimated ortho H–D quintet, J = 1.1973 Hz | 128.20 for all six carbons |
+
+The bundled database has no methanol O–H match (`Oq0h1(1Ch3)`), and the current
+proton fallback requires a carbon host. Consequently both ordinary CH₃OH and
+CD₃OH omit OH with the same unmatched-OH coverage warning, even when labile
+protons are requested. The passing CD₃OH regression confirms that its deuterated
+methyl contributes no ¹H resonances and that the unmatched OH is declined, never
+fabricated. Supplying an OH resonance requires additional defensible database
+coverage or a disclosed labile-proton fallback; applying that fallback equally
+to H and D also changes unlabelled methanol behavior. This change preserves the
+existing unlabelled behavior and does not invent a methanol OH value.
 
 ## Field-aware follow-up validation
 

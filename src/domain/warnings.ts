@@ -8,6 +8,7 @@ export const NmrWarningCodes = {
   ChargedStructure: "NMR_CHARGED_STRUCTURE",
   IsotopeNotSupported: "NMR_ISOTOPE_NOT_SUPPORTED",
   DeuteriumShiftNotModelled: "NMR_DEUTERIUM_SHIFT_NOT_MODELLED",
+  CarbonDeuteriumSplittingNotModelled: "NMR_CARBON_DEUTERIUM_SPLITTING_NOT_MODELLED",
   RadicalNotSupported: "NMR_RADICAL_NOT_SUPPORTED",
   LabileProtonOmitted: "NMR_LABILE_PROTON_OMITTED",
   NoFragmentMatch: "NMR_NO_FRAGMENT_MATCH",

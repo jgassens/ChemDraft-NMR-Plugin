@@ -3,6 +3,7 @@ import * as OCL from "openchemlib";
 import type { ChemicalStructureInput, NormalizedMolecule } from "../domain/contracts";
 import { NmrError, NmrErrorCodes } from "../domain/errors";
 import { nmrWarning, NmrWarningCodes, type NmrPredictionWarning } from "../domain/warnings";
+import { isDeuterium } from "../providers/ocl/hydrogenIsotopes";
 
 /** normalizeStructure's output: the internal OpenChemLib molecule (never serialized/sent out) plus a
  *  serializable summary. Providers read `molecule`; the worker sends only `normalized` across. */
@@ -77,7 +78,21 @@ export function normalizeStructure(input: ChemicalStructureInput): NormalizedStr
     );
   }
 
-  const isotopeAtoms = collectAtoms(molecule, (atom) => molecule.getAtomMass(atom) !== 0);
+  const deuteriumAtoms = collectAtoms(molecule, (atom) => isDeuterium(molecule, atom));
+  if (deuteriumAtoms.length > 0) {
+    warnings.push(
+      nmrWarning(
+        NmrWarningCodes.DeuteriumShiftNotModelled,
+        "Deuterium is treated as hydrogen for database environment matching and rule estimates; isotope shifts are not modelled (first-order). D is excluded from ¹H counts. H–D couplings are typical first-order estimates; geminal H–D is omitted because this model has no geminal H–H constant.",
+        { atomIndices: deuteriumAtoms }
+      )
+    );
+  }
+
+  const isotopeAtoms = collectAtoms(
+    molecule,
+    (atom) => molecule.getAtomMass(atom) !== 0 && !isDeuterium(molecule, atom)
+  );
   if (isotopeAtoms.length > 0) {
     warnings.push(
       nmrWarning(

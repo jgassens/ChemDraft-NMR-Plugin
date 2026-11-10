@@ -103,10 +103,10 @@ export class OclHosePredictor implements NmrPredictor {
         deuteratedCarbons.push(atom);
       }
     }
-    if (deuteratedCarbons.length > 0) {
+    if (nuclei.includes("13C") && deuteratedCarbons.length > 0) {
       warnings.push(nmrWarning(
-        NmrWarningCodes.DeuteriumShiftNotModelled,
-        `Carbon-bound D is treated as H only for ${nuclei.join("/")} shift lookup and rule estimates at carbon atoms ${deuteratedCarbons.join(", ")} (zero-based); isotope shifts are not modelled. D is excluded from ¹H counts. H–D couplings are typical first-order estimates; geminal H–D is omitted because this model has no geminal H–H constant.`,
+        NmrWarningCodes.CarbonDeuteriumSplittingNotModelled,
+        `¹³C peaks on carbons carrying D use hydrogen-matched environments; C–D splitting and isotope shifts are not modelled at carbon atoms ${deuteratedCarbons.join(", ")} (zero-based).`,
         { atomIndices: deuteratedCarbons }
       ));
     }

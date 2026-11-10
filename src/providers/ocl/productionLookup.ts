@@ -3,7 +3,7 @@ import * as OCL from "openchemlib";
 import type { NmrNucleus, NmrPredictionOptions } from "../../domain/contracts";
 import { atomEnvironmentCodes, environmentKey, MAX_SPHERES, protonHostAtom } from "./environmentCode";
 import type { CompiledNmrDatabase, NmrDatabaseEntry } from "./localDatabase";
-import { attachedDeuteriumAtoms, isDeuterium, protonCount } from "./hydrogenIsotopes";
+import { isDeuterium, protonCount } from "./hydrogenIsotopes";
 
 export interface Match {
   code: string;
@@ -56,13 +56,13 @@ export function prepareProductionLookup(
   constitution.ensureHelperArrays(OCL.Molecule.cHelperSymmetrySimple);
 
   const canonicalOrder = canonicalAtomOrder(normalized);
-  // C–D is folded to implicit H only for shift lookup/rules. Preserve isotope-aware constitutional
-  // classes so CH3, CHD2 and CD3 are never merged into one proton population. The predictor warns
-  // that this lookup does not model isotope shifts, naming the affected carbon hosts.
+  // D on any host (including O/N) is folded to implicit H only for shift lookup/rules.
+  // Preserve isotope-aware constitutional classes so CH3, CHD2 and CD3 are never merged into one
+  // proton population. The predictor warns
+  // that this first-order lookup does not model isotope shifts.
   const deuteriums: number[] = [];
   for (let atom = 0; atom < normalized.getAllAtoms(); atom += 1) {
-    if (normalized.getAtomicNo(atom) !== 6) continue;
-    deuteriums.push(...attachedDeuteriumAtoms(normalized, atom));
+    if (isDeuterium(normalized, atom)) deuteriums.push(atom);
   }
   const shiftMolecule = deuteriums.length > 0 ? normalized.getCompactCopy() : normalized;
   for (const deuterium of deuteriums) {

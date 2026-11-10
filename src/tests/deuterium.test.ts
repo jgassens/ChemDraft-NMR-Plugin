@@ -200,7 +200,7 @@ describe("first-order ¹H–²H coupling", () => {
     }
     expect(resonanceAt(deuterated, 1, "13C").deltaPpm).toBe(resonanceAt(parent, 1, "13C").deltaPpm);
     const carbonOnly = await predict("CC([2H])([2H])O", ["13C"]);
-    expect(carbonOnly.warnings.find((warning) => warning.code === NmrWarningCodes.DeuteriumShiftNotModelled))
+    expect(carbonOnly.warnings.find((warning) => warning.code === NmrWarningCodes.CarbonDeuteriumSplittingNotModelled))
       .toMatchObject({ atomIndices: [1], message: expect.stringContaining("isotope shifts are not modelled") });
   });
 
