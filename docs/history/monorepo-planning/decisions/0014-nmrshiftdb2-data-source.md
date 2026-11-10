@@ -30,7 +30,8 @@ SDBS/AIST (explicit copyright), commercial libraries (SpectraBase/Wiley/ACD).
 
 ## Consequences
 
-M10 ships a real, experimentally-grounded predictor with honest, attributed
+M10 ships a predictor based on NMRShiftDB2 assignments (the database does not mark which are
+experimental), with attributed
 provenance and no remote-data dependency (contrast ADR-0013). Coverage is narrow
 (196 structures) — the predictor must degrade gracefully (sphere fallback + wide
 uncertainty + explicit no-match), and the panel must never present synthetic or

@@ -7,6 +7,8 @@ import { buildNmrDatabase } from "../providers/ocl/buildDatabase";
 import { atomEnvironmentCodes, environmentKey } from "../providers/ocl/environmentCode";
 import type { CompiledNmrDatabase, NmrDatabaseEntry } from "../providers/ocl/localDatabase";
 import { OclHosePredictor } from "../providers/ocl/OclHosePredictor";
+import { composePredictionReport } from "../report/composePredictionReport";
+import { renderStickSpectrumSvg } from "../report/stickSpectrumSvg";
 
 const OPTIONS: NmrPredictionOptions = {
   statistic: "median",
@@ -266,6 +268,53 @@ describe("OclHosePredictor", () => {
     expect(estimated.every((resonance) => resonance.flags.includes("rule-estimated"))).toBe(true);
     expect(estimated.every((resonance) => resonance.evidence?.estimator?.id === "chemdraft.functional-group-rules")).toBe(true);
     expect(estimated.every((resonance) => resonance.evidence?.estimator?.version === "1.1.0")).toBe(true);
+  });
+
+  it.each(["1H", "13C"] as const)("discloses %s rule estimates through data, table, spectrum and warnings", async (nucleus) => {
+    // Propane has two distinct environments. A controlled reference database makes the absence of
+    // a match reproducible, independent of subsequent upstream database releases.
+    for (const coverage of ["unmatched", "mixed", "matched"] as const) {
+      const db = coverage === "unmatched" ? database() : shallowDatabase("CCC", nucleus);
+      if (coverage === "mixed") delete db.entries[Object.keys(db.entries)[0]];
+      const result = await predict(new OclHosePredictor({ database: db }), "CCC", nucleus);
+      const parsed = NmrPredictionResultSchema.parse(JSON.parse(JSON.stringify(result)));
+      expect(parsed.resonances.map((resonance) => resonance.source)).toEqual(
+        result.resonances.map((resonance) => resonance.source)
+      );
+      const estimated = result.resonances.filter((resonance) => resonance.source === "rule-estimate");
+      const matched = result.resonances.filter((resonance) => resonance.source === "lookup");
+      expect(estimated.length > 0).toBe(coverage !== "matched");
+      expect(matched.length > 0).toBe(coverage !== "unmatched");
+
+      const report = composePredictionReport({
+        objectId: "propane", documentId: "doc", pageId: "page", structureFormat: "smiles",
+        structure: "CCC", sourceFingerprint: result.sourceFingerprint
+      }, result);
+      const table = report.sections.find((section) => section.kind === "table");
+      const figure = report.sections.find((section) => section.kind === "linkedFigure");
+      if (table?.kind !== "table" || figure?.kind !== "linkedFigure") throw new Error("missing report sections");
+      expect(table.rows.filter((row) => row[1].startsWith("≈"))).toHaveLength(estimated.length);
+      expect(table.rows.filter((row) => row[6] === "est.")).toHaveLength(estimated.length);
+      expect(figure.spectrum.peaks.filter((peak) => peak.label?.endsWith(" est."))).toHaveLength(estimated.length);
+      expect(figure.spectrum.peaks.filter((peak) => peak.estimated)).toHaveLength(estimated.length);
+
+      const svg = renderStickSpectrumSvg(result);
+      expect([...svg.matchAll(/stroke-dasharray="4 3"/g)]).toHaveLength(estimated.length);
+      expect(svg.includes("est. / dashed stick = rule estimate; no database match")).toBe(estimated.length > 0);
+      expect(report.sections.some((section) => section.title === "Rule-estimate legend")).toBe(estimated.length > 0);
+      const warning = result.warnings.find((warning) => warning.code === "NMR_RULE_ESTIMATED");
+      if (estimated.length) {
+        const atoms = [...new Set(estimated.flatMap((resonance) => resonance.atomRefs.map((ref) => ref.sourceAtomIndex)))].sort((a, b) => a - b);
+        expect(warning?.atomIndices).toEqual(atoms);
+        expect(warning?.message).toContain(`${nucleus} ${nucleus === "1H" ? "host atoms" : "atoms"} ${atoms.join(", ")}`);
+        const notices = report.sections.find((section) => section.kind === "text" && section.title === "Notices");
+        expect(notices?.kind === "text" ? notices.body : "").toContain(warning!.message);
+        for (const resonance of estimated) expect(svg).toContain(`${resonance.deltaPpm.toFixed(1)} est.</text>`);
+      } else {
+        expect(warning).toBeUndefined();
+        expect(svg).not.toContain("est.");
+      }
+    }
   });
 
   it("omits unsupported unmatched silicon environments instead of fabricating shifts", async () => {

@@ -18,19 +18,19 @@ Two providers ship, with separately-tracked data:
   synthetic fixtures**, not derived from any experimental dataset. Used for
   deterministic tests / offline fallback.
 - **OCL-native provider** (default) — its reference database
-  `providers/ocl/nmrshiftdb2.database.json` is a **derivative database compiled
-  from NMRShiftDB2** experimental assignments, under the **nmrshiftdb2 Database
+  `src/providers/ocl/nmrshiftdb2.database.json` is a **derivative database compiled
+  from NMRShiftDB2** assignments (the database does not mark which are experimental), under the **nmrshiftdb2 Database
   License** (ODbL-derived; commercial use permitted, share-alike, attribution).
-  Provenance, license, and attribution: `providers/ocl/NMRSHIFTDB2_LICENSE.md`.
+  Provenance, license, and attribution: `src/providers/ocl/NMRSHIFTDB2_LICENSE.md`.
   It contains aggregated statistics only, no structures. Rebuild via
   `scripts/build-database.ts`.
 
-The plugin's **code license is not yet finalized**. The repository is not licensed for public
-redistribution until the project owner chooses and applies explicit terms. The compiled database is
-a **separate data asset** with its own license, surfaced at runtime in the panel's "Reference
-database" section (see ADR-0014). The included `LICENSE` records the current internal-only code
-status. Do not infer public code-redistribution permission from the data license or from a
-dependency's license.
+The plugin's original **code is MIT-licensed**, as recorded in `LICENSE`. The compiled
+database is a **separate data asset** under the nmrshiftdb2 Database License
+(ODbL-derived), declared in root `package.json` under `dataLicenses` and surfaced at
+runtime in the panel's "Reference database" section. The MIT code grant does not
+relicense the database or third-party dependencies. The installable package includes
+that package metadata, this notice, and the declared database notice file.
 
 ## Rule-parameter sources
 

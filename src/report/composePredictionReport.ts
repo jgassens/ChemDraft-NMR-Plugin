@@ -6,7 +6,7 @@ import type {
   PluginSelectedMolecule
 } from "@chemdraft/plugin-api";
 
-import { PROTON_HIGH_DISPERSION_CROSS_CHECK_PPM } from "../domain/contracts";
+import { isRuleEstimated, PROTON_HIGH_DISPERSION_CROSS_CHECK_PPM } from "../domain/contracts";
 import type { NmrNucleus, NmrPredictionResult, NmrResonance } from "../domain/contracts";
 import type { CommandError } from "../application/mapSelection";
 import { MEASURED_ACCURACY } from "../providers/ocl/measuredAccuracy";
@@ -15,10 +15,10 @@ const PANEL_TITLE = "NMR Prediction";
 const SYNTHETIC_DISCLAIMER =
   "Synthetic fixture values — a deterministic architecture demo, not experimental reference data.";
 const EXPERIMENTAL_NOTE =
-  "Statistical predictions from aggregated experimental reference shifts. Confidence is low where the " +
+  "Statistical predictions from NMRShiftDB2 assignments (the database does not mark which are experimental). Confidence is low where the " +
   "reference population is small or only a shallow environment matched — see notices above.";
 const MIXED_METHOD_NOTE =
-  "Mixed result: HOSE peaks are statistical predictions from aggregated experimental reference shifts; " +
+  "Mixed result: HOSE peaks use statistics from NMRShiftDB2 assignments (the database does not mark which are experimental); " +
   "rule-estimated shifts are marked ≈ in the table and drawn muted/italic in the spectrum.";
 const RULE_ONLY_NOTE =
   "Rule-estimated shifts from bounded increment and functional-class tables; no HOSE reference match " +
@@ -99,6 +99,13 @@ export function composePredictionReport(
     sections.push(...estimateProvenanceSections(result));
     sections.push(linkedFigureSection(result, methods));
     sections.push(resonanceTable(result));
+    if (methods.hasRules) {
+      sections.push({
+        kind: "text",
+        title: "Rule-estimate legend",
+        body: "≈ / est. = rule-estimated shift with no database match. Spectrum labels include est.; linked peaks are muted/italic and exported SVG sticks are dashed. Atom indices are zero-based; ¹H indices identify host atoms."
+      });
+    }
   }
   sections.push(...noticeSections(result));
   sections.push(...databaseSection(result));
@@ -136,7 +143,7 @@ function resultMethodSummary(result: NmrPredictionResult): ResultMethodSummary {
   return {
     fixture: result.backend.method === "fixture-fragment",
     hasHose: result.resonances.some((resonance) => resonance.evidence?.method === "hose-fragment"),
-    hasRules: result.resonances.some((resonance) => resonance.evidence?.method === "rule-estimated"),
+    hasRules: result.resonances.some(isRuleEstimated),
     empty: result.resonances.length === 0
   };
 }
@@ -164,7 +171,7 @@ function linkedFigureSection(result: NmrPredictionResult, methods: ResultMethodS
       id: resonance.id,
       ppm: resonance.deltaPpm,
       intensity: resonance.equivalentNuclei ?? 1,
-      label: resonance.deltaPpm.toFixed(2),
+      label: `${resonance.deltaPpm.toFixed(2)}${isRuleEstimated(resonance) ? " est." : ""}`,
       atomIndices: resonance.atomRefs.map((ref) => ref.sourceAtomIndex)
     };
     const tier = confidenceTier(resonance);
@@ -229,14 +236,14 @@ function linkedFigureSection(result: NmrPredictionResult, methods: ResultMethodS
 
 function figureCaption(methods: ResultMethodSummary): string {
   const interaction =
-    "Peak height represents predicted equivalent nuclei, not experimental integration. " +
+    "¹H–¹H couplings are typical first-order estimates. Peak height represents predicted equivalent nuclei, not experimental integration. " +
     "Scroll to zoom, drag to pan; hover a peak to highlight its atoms.";
   if (methods.fixture) return `Synthetic fixture spectrum. ${interaction}`;
   if (methods.hasHose && methods.hasRules) {
-    return `Mixed HOSE and rule-estimated spectrum; muted italic peaks mark rule estimates. ${interaction}`;
+    return `Mixed HOSE and rule-estimated spectrum; muted italic peaks labelled est. mark rule estimates. ${interaction}`;
   }
   if (methods.hasRules) {
-    return `Rule-estimated spectrum; muted italic peaks mark coarse table estimates. ${interaction}`;
+    return `Rule-estimated spectrum; muted italic peaks labelled est. mark coarse table estimates. ${interaction}`;
   }
   return interaction;
 }
@@ -261,7 +268,7 @@ function resonanceTable(result: NmrPredictionResult): PluginPanelSection {
   const rows = [...result.resonances]
     .sort((a, b) => b.deltaPpm - a.deltaPpm)
     .map((resonance) => {
-      const estimated = resonance.evidence?.method === "rule-estimated";
+      const estimated = isRuleEstimated(resonance);
       return [
         nucleusLabel(resonance.nucleus),
         `${estimated ? "≈" : ""}${resonance.deltaPpm.toFixed(2)}`,
@@ -321,7 +328,7 @@ type ConfidenceTier = "high" | "medium" | "low" | "estimated" | "unknown";
  *  `unknown` = a match with no sphere/n basis (e.g. the synthetic fixture). */
 function confidenceTier(resonance: NmrResonance): ConfidenceTier {
   const evidence = resonance.evidence;
-  if (evidence?.method === "rule-estimated") {
+  if (isRuleEstimated(resonance)) {
     return "estimated";
   }
   const sphere = evidence?.matchedSphere;

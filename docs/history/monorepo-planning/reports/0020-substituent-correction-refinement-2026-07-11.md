@@ -121,7 +121,8 @@ No dependencies were added, removed, or upgraded. The implementation reuses the 
 - **Data provenance:** NMRShiftDB2 full NMReDATA export, 49,628 atom-assigned structures and 40,024
   retained aggregated environment entries; nmrshiftdb2 Database License (ODbL-derived).
 - **Synthetic values:** only the deterministic fixture provider is synthetic. The active HOSE values
-  are aggregated experimental reference shifts; v1.2 comparisons/fallbacks are explicitly rule data.
+  are statistics from NMRShiftDB2 assignments (the database does not mark which are experimental);
+  v1.2 comparisons/fallbacks are explicitly rule data.
 - **Supported nuclei:** ¹H and ¹³C. The v1.2 additive comparison is ¹H-only.
 - **Unsupported chemistry:** any environment without an explicit database match or allow-listed rule,
   including the conservative exclusions listed above, is warned and omitted.

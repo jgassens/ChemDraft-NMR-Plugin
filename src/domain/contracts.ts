@@ -112,6 +112,8 @@ export interface NmrMultiplet {
 export interface NmrResonance {
   id: string;
   nucleus: NmrNucleus;
+  /** Origin of the primary shift. Optional only for older schema-v1 session data. */
+  source?: "lookup" | "rule-estimate";
   deltaPpm: number;
   atomRefs: readonly NmrAtomReference[];
   /** Predicted count of equivalent nuclei. This is NOT an experimental integral. */
@@ -135,6 +137,11 @@ export interface NmrResonance {
     estimator?: NmrEstimateProvenance;
   };
   flags: readonly string[];
+}
+
+/** Preserve estimate labelling for saved results predating the explicit source field. */
+export function isRuleEstimated(resonance: NmrResonance): boolean {
+  return resonance.source === "rule-estimate" || resonance.evidence?.method === "rule-estimated";
 }
 
 export interface NmrPredictionBackend {

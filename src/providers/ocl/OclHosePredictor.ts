@@ -47,7 +47,8 @@ interface PredictionCounts {
 type Statistic = NmrPredictionOptions["statistic"];
 
 /**
- * Experimentally-grounded predictor: derive local OCL environments, search the bundled HOSE database
+ * Predictor based on NMRShiftDB2 assignments (the database does not mark which are experimental):
+ * derive local OCL environments, search the bundled HOSE database
  * deepest-first, and disclose thin matches. A rule estimate is emitted only when its estimator says
  * the chemistry is applicable; otherwise the unsupported unmatched environment is omitted with a
  * stable warning. All output remains serializable worker/store data.
@@ -178,11 +179,20 @@ export class OclHosePredictor implements NmrPredictor {
     }
 
     if (totals.estimated > 0) {
+      const estimates = resonances.filter((resonance) => resonance.source === "rule-estimate");
+      const estimateAtoms = (values: readonly NmrResonance[]): number[] =>
+        [...new Set(values.flatMap((resonance) => resonance.atomRefs.map((ref) => ref.sourceAtomIndex)))]
+          .sort((a, b) => a - b);
+      const atomIndices = estimateAtoms(estimates);
+      const atomLists = nuclei.flatMap((nucleus) => {
+        const atoms = estimateAtoms(estimates.filter((resonance) => resonance.nucleus === nucleus));
+        return atoms.length ? [`${nucleus} ${nucleus === "1H" ? "host atoms" : "atoms"} ${atoms.join(", ")}`] : [];
+      });
       warnings.push(
         nmrWarning(
           NmrWarningCodes.RuleEstimated,
-          `${totals.estimated} resonance(s) had no database match and are shown as disclosed rule estimates (low confidence).`,
-          { severity: "warning" }
+          `${totals.estimated} resonance(s) had no database match and are shown as rule estimates (est.): ${atomLists.join("; ")}. Atom indices are zero-based; 1H indices identify the host atom.`,
+          { severity: "warning", atomIndices }
         )
       );
     }
@@ -857,6 +867,7 @@ function buildResonance(
   return {
     id: `${nucleus === "13C" ? "c" : "h"}-${Math.min(...atoms)}`,
     nucleus,
+    source: "lookup",
     deltaPpm,
     atomRefs: atoms.map((atom, index) => ({
       sourceAtomIndex: atom,
@@ -885,6 +896,7 @@ function buildEstimatedResonance(
   const resonance: NmrResonance = {
     id: `${nucleus === "13C" ? "c" : "h"}-est-${Math.min(...atoms)}`,
     nucleus,
+    source: "rule-estimate",
     deltaPpm: round2(shift),
     atomRefs: atoms.map((atom, index) => ({
       sourceAtomIndex: atom,

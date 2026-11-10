@@ -182,7 +182,7 @@ describe("composePredictionReport", () => {
 
     const report = composePredictionReport(source, ruleOnly);
     expect(textBodies(report)).toContain("no HOSE reference match contributed");
-    expect(textBodies(report)).not.toContain("Statistical predictions from aggregated experimental reference shifts");
+    expect(textBodies(report)).not.toContain("Statistical predictions from NMRShiftDB2 assignments");
     expect(textBodies(report)).toContain('"label":"Method","value":"rule-estimated"');
     const figure = report.sections.find((section) => section.kind === "linkedFigure");
     expect(figure && figure.kind === "linkedFigure" ? figure.spectrum.solvent : "set").toBeUndefined();
@@ -239,7 +239,7 @@ describe("composePredictionReport", () => {
     const report = composePredictionReport(source, empty);
     expect(textBodies(report)).toContain('"label":"Method","value":"no applicable prediction"');
     expect(textBodies(report)).toContain("No applicable resonance was produced");
-    expect(textBodies(report)).not.toContain("Statistical predictions from aggregated experimental reference shifts");
+    expect(textBodies(report)).not.toContain("Statistical predictions from NMRShiftDB2 assignments");
   });
 
   it("uses a method-neutral disclaimer for non-HOSE model results", () => {
@@ -260,7 +260,7 @@ describe("composePredictionReport", () => {
     };
     const report = composePredictionReport(source, gnn);
     expect(textBodies(report)).toContain("Method-derived predicted shifts from the reported backend");
-    expect(textBodies(report)).not.toContain("Statistical predictions from aggregated experimental reference shifts");
+    expect(textBodies(report)).not.toContain("Statistical predictions from NMRShiftDB2 assignments");
   });
 
   it("plots a tight ppm window around the peaks (~1 ppm buffer, not the whole ¹H range)", () => {

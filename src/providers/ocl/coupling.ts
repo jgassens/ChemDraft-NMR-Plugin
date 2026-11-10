@@ -12,6 +12,7 @@ import type { NmrCoupling, NmrMultiplet } from "../../domain/contracts";
  * full spin simulation. Runtime OpenChemLib import; reachable only via OclHosePredictor (worker/lazy).
  */
 
+// Typical first-order estimates for ¹H–¹H couplings, in Hz.
 const J_VICINAL = 7.0;
 const J_AROMATIC_ORTHO = 7.8;
 const J_AROMATIC_META = 1.6;
