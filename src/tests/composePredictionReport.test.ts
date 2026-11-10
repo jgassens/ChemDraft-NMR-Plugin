@@ -1,4 +1,4 @@
-import type { PluginSelectedMolecule } from "@chemdraft/plugin-api";
+import { PluginPanelReportSchema, type PluginSelectedMolecule } from "@chemdraft/plugin-api";
 import { describe, expect, it } from "vitest";
 
 import type { NmrPredictionResult } from "../domain/contracts";
@@ -67,6 +67,7 @@ describe("composePredictionReport", () => {
     if (!figure || figure.kind !== "linkedFigure") throw new Error("expected a linkedFigure section");
     expect(figure.spectrum.peaks).toHaveLength(1);
     expect(figure.spectrum.peaks[0].atomIndices).toEqual([0]);
+    expect(JSON.stringify(figure.spectrum.peaks)).toBe('[{"id":"c-0","ppm":128.5,"intensity":6,"label":"128.50","atomIndices":[0]}]');
     expect(figure.spectrum.reversed).toBe(true);
     // A fixture result carries no molecule geometry — the spectrum still renders, without structure.
     expect(figure.structure).toBeUndefined();
@@ -170,6 +171,7 @@ describe("composePredictionReport", () => {
           deltaPpm: 1.2,
           atomRefs: [{ sourceAtomIndex: 0, element: "H", equivalentCount: 3 }],
           equivalentNuclei: 3,
+          source: "rule-estimate",
           evidence: {
             method: "rule-estimated",
             estimator: { id: "rules", version: "1", method: "shoolery-alpha-beta-gamma" }
@@ -181,10 +183,13 @@ describe("composePredictionReport", () => {
     };
 
     const report = composePredictionReport(source, ruleOnly);
+    expect(PluginPanelReportSchema.safeParse(report).success).toBe(true);
     expect(textBodies(report)).toContain("no HOSE reference match contributed");
     expect(textBodies(report)).not.toContain("Statistical predictions from NMRShiftDB2 assignments");
     expect(textBodies(report)).toContain('"label":"Method","value":"rule-estimated"');
     const figure = report.sections.find((section) => section.kind === "linkedFigure");
+    if (!figure || figure.kind !== "linkedFigure") throw new Error("expected a linkedFigure section");
+    expect(figure.spectrum.peaks.every((peak) => peak.estimated === true)).toBe(true);
     expect(figure && figure.kind === "linkedFigure" ? figure.spectrum.solvent : "set").toBeUndefined();
     expect(figure && figure.kind === "linkedFigure" ? figure.caption : "").toContain("Rule-estimated spectrum");
   });
@@ -222,6 +227,9 @@ describe("composePredictionReport", () => {
     expect(textBodies(report)).toContain("rule-estimated shifts are marked ≈ in the table");
     expect(textBodies(report)).toContain('"label":"Method","value":"hose-fragment + rule-estimated"');
     const figure = report.sections.find((section) => section.kind === "linkedFigure");
+    if (!figure || figure.kind !== "linkedFigure") throw new Error("expected a linkedFigure section");
+    expect(figure.spectrum.peaks[0]).not.toHaveProperty("estimated");
+    expect(figure.spectrum.peaks[1].estimated).toBe(true);
     expect(figure && figure.kind === "linkedFigure" ? figure.spectrum.solvent : "").toContain("CDCl₃");
     expect(figure && figure.kind === "linkedFigure" ? figure.caption : "").toContain("Mixed HOSE and rule-estimated");
     expect(figure && figure.kind === "linkedFigure" ? figure.caption : "").toContain("muted italic peaks");

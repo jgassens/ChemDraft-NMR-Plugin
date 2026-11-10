@@ -61,6 +61,7 @@ const NmrPredictionUncertaintySchema = z.object({
 const NmrCouplingSchema = z.object({
   jHz: z.number(),
   partnerCount: z.number(),
+  partnerNucleus: z.literal("2H").optional(),
   kind: z.enum(["vicinal", "aromatic-ortho", "aromatic-meta", "aldehyde", "other"]),
   toAtomIndex: z.number().optional()
 });

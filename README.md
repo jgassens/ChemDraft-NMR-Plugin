@@ -118,6 +118,19 @@ tree.
   estimates, and a full spin analysis may be needed. Disclosure checks are
   advisory: if OpenChemLib cannot complete one, the predictor reports that
   limitation and still returns the available shifts.
+  Carbon-bound deuterium (molfile `D` or `H` with `M ISO` mass 2) is excluded
+  from ¹H counts. Vicinal H–D couplings are **typical first-order estimates**, using
+  the existing H–H class constant × γ(²H)/γ(¹H) = 0.1535 (Harris et al., IUPAC
+  Recommendations 2001, Table 1, doi:10.1351/pac200173111795; verification of the
+  ratio against the paper is pending). Equivalent D partners have spin 1:
+  one/two/three D give triplet/quintet/septet intensities 1:1:1,
+  1:2:3:2:1, and 1:3:6:7:6:3:1, nested with H–H splitting. Geminal H–D is
+  omitted because the model has no geminal H–H constant. Shift lookup uses the
+  undeuterated environment and warns with the affected carbon indices that isotope
+  shifts are not modelled. H–D and nested H–H line spacing follows the host's
+  selected spectrometer field, preserving J in Hz and spin-1 intensities. Standalone
+  SVGs accept `protonFrequencyMHz` (default 400 MHz) and display the field.
+  See [H–D implementation notes](docs/deuterium-coupling.md).
 - **Fixture** — deterministic synthetic data used for tests and explicit fixture
   provider requests.
 

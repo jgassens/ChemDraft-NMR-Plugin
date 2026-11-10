@@ -18,6 +18,7 @@ import { nmrWarning, NmrWarningCodes, type NmrPredictionWarning } from "../../do
 import { normalizeStructure } from "../../application/normalizeStructure";
 import { computeMultiplet, reportedProtonCouplingHz } from "./coupling";
 import { MAX_SPHERES } from "./environmentCode";
+import { attachedDeuteriumAtoms, isDeuterium, protonCount } from "./hydrogenIsotopes";
 import { estimateCarbonShiftWithApplicability } from "./functionalGroupFallback";
 import { estimateProtonIncrement } from "./incrementEstimator";
 import type { CompiledNmrDatabase, NmrDatabaseEntry, NmrDatabaseProvenance } from "./localDatabase";
@@ -96,6 +97,19 @@ export class OclHosePredictor implements NmrPredictor {
     const totals: PredictionCounts = { estimated: 0, omitted: 0 };
     const lookupContext = prepareProductionLookup(molecule, maxSpheres);
     const nuclei = dedupeNuclei(request.nuclei);
+    const deuteratedCarbons: number[] = [];
+    for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
+      if (molecule.getAtomicNo(atom) === 6 && attachedDeuteriumAtoms(molecule, atom).length > 0) {
+        deuteratedCarbons.push(atom);
+      }
+    }
+    if (deuteratedCarbons.length > 0) {
+      warnings.push(nmrWarning(
+        NmrWarningCodes.DeuteriumShiftNotModelled,
+        `Carbon-bound D is treated as H only for ${nuclei.join("/")} shift lookup and rule estimates at carbon atoms ${deuteratedCarbons.join(", ")} (zero-based); isotope shifts are not modelled. D is excluded from ¹H counts. H–D couplings are typical first-order estimates; geminal H–D is omitted because this model has no geminal H–H constant.`,
+        { atomIndices: deuteratedCarbons }
+      ));
+    }
     const hydrogenDiastereotopy = nuclei.includes("1H")
       ? runDisclosureCheck(warnings, "stereochemical", () =>
           componentLocalHydrogenDiastereotopy(molecule)
@@ -259,7 +273,7 @@ function predictCarbon(
     }
 
     const code = codes[codes.length - 1];
-    const estimate = estimateCarbonShiftWithApplicability(molecule, representative);
+    const estimate = estimateCarbonShiftWithApplicability(lookupContext._shiftMolecule, lookupContext._inputToShift[representative]);
     if (!estimate.applicable) {
       omitted += atoms.length;
       warnOmitted(warnings, "13C", atoms, code, estimate.reason);
@@ -315,7 +329,7 @@ function predictProton(
   for (const atoms of lookupContext.protonClasses) {
     const lookup = lookupProductionEnvironment(database, lookupContext, "1H", atoms[0]);
     const representative = lookup.representativeAtom;
-    const protonCounts = atoms.map((atom) => molecule.getAllHydrogens(atom));
+    const protonCounts = atoms.map((atom) => protonCount(molecule, atom));
     if (
       LABILE_HYDROGEN_HOSTS.has(molecule.getAtomicNo(representative)) &&
       request.options.ignoreLabileHydrogens
@@ -332,7 +346,7 @@ function predictProton(
         atoms,
         request.options.ignoreLabileHydrogens
       );
-      const crossCheck = protonCrossCheck(molecule, representative, found.entry, request.options.statistic);
+      const crossCheck = protonCrossCheck(lookupContext._shiftMolecule, lookupContext._inputToShift[representative], found.entry, request.options.statistic);
       resonances.push(
         buildResonance(
           "1H",
@@ -350,7 +364,7 @@ function predictProton(
     }
 
     const code = codes[codes.length - 1];
-    const estimate = estimateProtonIncrement(molecule, representative);
+    const estimate = estimateProtonIncrement(lookupContext._shiftMolecule, lookupContext._inputToShift[representative]);
     if (!estimate.applicable) {
       omitted += atoms.length;
       warnOmitted(warnings, "1H", atoms, code, estimate.reason);
@@ -457,7 +471,7 @@ function warnPotentiallyDiastereotopicMethyls(
     const methylNeighbors: number[] = [];
     for (let connection = 0; connection < molecule.getConnAtoms(atom); connection += 1) {
       const neighbor = molecule.getConnAtom(atom, connection);
-      if (molecule.getAtomicNo(neighbor) === 6 && molecule.getAllHydrogens(neighbor) === 3) {
+      if (molecule.getAtomicNo(neighbor) === 6 && protonCount(molecule, neighbor) === 3) {
         methylNeighbors.push(neighbor);
       }
     }
@@ -546,7 +560,7 @@ function componentLocalHydrogenDiastereotopy(
   const componentByAtom = connectedComponentNumbers(molecule);
   const candidateComponents = new Set<number>();
   for (let atom = 0; atom < atomCount; atom += 1) {
-    if (molecule.getAtomicNo(atom) === 6 && molecule.getAllHydrogens(atom) === 2) {
+    if (molecule.getAtomicNo(atom) === 6 && protonCount(molecule, atom) === 2) {
       candidateComponents.add(componentByAtom[atom]);
     }
   }
@@ -571,11 +585,11 @@ function componentLocalHydrogenDiastereotopy(
     for (let atom = 0; atom < atomCount; atom += 1) {
       if (!includedAtoms[atom]) continue;
       const componentAtom = inputToComponent[atom];
-      if (molecule.getAtomicNo(atom) !== 6 || molecule.getAllHydrogens(atom) !== 2) continue;
+      if (molecule.getAtomicNo(atom) !== 6 || protonCount(molecule, atom) !== 2) continue;
       const hydrogenIds: string[] = [];
       for (let connection = 0; connection < component.getAllConnAtoms(componentAtom); connection += 1) {
         const neighbor = component.getConnAtom(componentAtom, connection);
-        if (component.getAtomicNo(neighbor) !== 1) continue;
+        if (component.getAtomicNo(neighbor) !== 1 || isDeuterium(component, neighbor)) continue;
         const hydrogenId = componentIds[neighbor];
         if (hydrogenId === undefined) {
           throw new Error(`OpenChemLib did not return an ID for a hydrogen on mapped atom ${atom}.`);
@@ -751,7 +765,7 @@ function protonSpinSystems(
   const protonHosts = Array.from({ length: molecule.getAllAtoms() }, (_, atom) => atom).filter(
     (atom) =>
       molecule.getAtomicNo(atom) !== 1 &&
-      molecule.getAllHydrogens(atom) > 0 &&
+      protonCount(molecule, atom) > 0 &&
       (!ignoreLabileHydrogens || !LABILE_HYDROGEN_HOSTS.has(molecule.getAtomicNo(atom)))
   );
   const spinSystemByHost = new Map<number, number>();

@@ -97,6 +97,8 @@ export interface NmrPredictionUncertainty {
 export interface NmrCoupling {
   jHz: number;
   partnerCount: number;
+  /** Absent means ¹H (I = 1/2); ²H partners have I = 1 and give 2n+1 lines. */
+  partnerNucleus?: "2H";
   kind: "vicinal" | "aromatic-ortho" | "aromatic-meta" | "aldehyde" | "other";
   /** A representative partner atom index (for future peak↔peak linking). */
   toAtomIndex?: number;

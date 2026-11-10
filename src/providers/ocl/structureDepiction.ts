@@ -1,6 +1,7 @@
 import * as OCL from "openchemlib";
 
 import type { NmrStructureBond, NmrStructureDepiction } from "../../domain/contracts";
+import { isDeuterium } from "./hydrogenIsotopes";
 
 /**
  * Build a chemistry-agnostic 2D depiction (indexed atom points + bond lines) from the predictor's
@@ -29,7 +30,7 @@ export function buildStructureDepiction(molecule: OCL.Molecule): NmrStructureDep
     index: atom,
     x: round(molecule.getAtomX(atom)),
     y: round(molecule.getAtomY(atom)),
-    element: OCL.Molecule.cAtomLabel[molecule.getAtomicNo(atom)] ?? `Z${molecule.getAtomicNo(atom)}`
+    element: isDeuterium(molecule, atom) ? "D" : OCL.Molecule.cAtomLabel[molecule.getAtomicNo(atom)] ?? `Z${molecule.getAtomicNo(atom)}`
   }));
 
   const bonds: NmrStructureBond[] = [];

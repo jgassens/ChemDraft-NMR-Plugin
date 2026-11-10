@@ -1,13 +1,16 @@
 import * as OCL from "openchemlib";
 
 import type { NmrCoupling, NmrMultiplet } from "../../domain/contracts";
+import { DEUTERIUM_PROTON_GYROMAGNETIC_RATIO } from "../../domain/firstOrderCoupling";
+import { attachedDeuteriumAtoms, protonCount } from "./hydrogenIsotopes";
 
 /**
  * First-order ¹H multiplicity + coupling estimator from the molecular topology (not from the shift
  * database). For a proton-bearing host atom it finds its coupling partners on the bond graph —
  * vicinal ³J (protons on heavy neighbours), aromatic ortho/meta, and a smaller aldehyde J — assigns a
- * class-typical J to each, merges equivalent couplings, and applies the first-order (n+1) rule to
- * produce a multiplicity label (s, d, t, q, quint, sext, sept, dd, dt, ddd, m, …). These are
+ * class-typical J to each, merges equivalent couplings, and applies the first-order (n+1) rule for H
+ * or (2n+1) rule for carbon-bound D (I = 1). Vicinal H–D estimates scale the same H–H class constant,
+ * producing a multiplicity label (s, d, t, q, quint, sext, sept, dd, dt, ddd, m, …). These are
  * estimates for readability, in the spirit of ChemDraw's ChemNMR — deliberately simple, not a
  * full spin simulation. Runtime OpenChemLib import; reachable only via OclHosePredictor (worker/lazy).
  */
@@ -33,6 +36,10 @@ export function computeMultiplet(
 ): NmrMultiplet {
   molecule.ensureHelperArrays(OCL.Molecule.cHelperRings);
   const couplings: NmrCoupling[] = [];
+  if (molecule.getAtomicNo(hostAtom) === 1 || protonCount(molecule, hostAtom) === 0) {
+    return buildMultiplet(couplings);
+  }
+  // There is no geminal H–H constant in this model, so geminal H–D is deliberately omitted.
   // Protons represented by one emitted constitutional class do not split one another in this
   // first-order display. Including the observed host also makes this explicit for any future
   // same-host (geminal) coupling path.
@@ -42,6 +49,21 @@ export function computeMultiplet(
   // Vicinal ³J: protons on the host's heavy neighbours (path H–C–C–H).
   for (let i = 0; i < molecule.getConnAtoms(hostAtom); i += 1) {
     const neighbor = molecule.getConnAtom(hostAtom, i);
+    // D on a neighbouring carbon splits the observed protons even if that carbon's remaining
+    // protons belong to the same emitted class. Chemical equivalence excludes only H–H splitting.
+    if (molecule.getAtomicNo(hostAtom) === 6 && molecule.getAtomicNo(neighbor) === 6) {
+      const deuteriums = attachedDeuteriumAtoms(molecule, neighbor);
+      if (deuteriums.length > 0) {
+        const base = vicinalHostCoupling(molecule, hostAtom, neighbor);
+        couplings.push({
+          jHz: base.jHz * DEUTERIUM_PROTON_GYROMAGNETIC_RATIO,
+          partnerCount: deuteriums.length,
+          partnerNucleus: "2H",
+          kind: base.kind,
+          toAtomIndex: neighbor
+        });
+      }
+    }
     if (chemicallyEquivalentHosts.has(neighbor)) continue;
     const coupling = protonCouplingBetweenHosts(
       molecule,
@@ -104,8 +126,8 @@ function protonCouplingBetweenHosts(
     firstHost === secondHost ||
     molecule.getAtomicNo(firstHost) === 1 ||
     molecule.getAtomicNo(secondHost) === 1 ||
-    molecule.getAllHydrogens(firstHost) <= 0 ||
-    molecule.getAllHydrogens(secondHost) <= 0 ||
+    protonCount(molecule, firstHost) <= 0 ||
+    protonCount(molecule, secondHost) <= 0 ||
     (ignoreLabileHydrogens &&
       (LABILE_PARTNER_ELEMENTS.has(molecule.getAtomicNo(firstHost)) ||
         LABILE_PARTNER_ELEMENTS.has(molecule.getAtomicNo(secondHost))))
@@ -116,16 +138,7 @@ function protonCouplingBetweenHosts(
   let jHz = 0;
   let kind: NmrCoupling["kind"] = "other";
   if (areBonded(molecule, firstHost, secondHost)) {
-    if (molecule.isAromaticAtom(firstHost) && molecule.isAromaticAtom(secondHost)) {
-      jHz = J_AROMATIC_ORTHO;
-      kind = "aromatic-ortho";
-    } else if (isAldehydeCarbon(molecule, firstHost) || isAldehydeCarbon(molecule, secondHost)) {
-      jHz = J_ALDEHYDE;
-      kind = "aldehyde";
-    } else {
-      jHz = J_VICINAL;
-      kind = "vicinal";
-    }
+    ({ jHz, kind } = vicinalHostCoupling(molecule, firstHost, secondHost));
   } else if (
     molecule.isAromaticAtom(firstHost) &&
     molecule.isAromaticAtom(secondHost) &&
@@ -138,10 +151,25 @@ function protonCouplingBetweenHosts(
   if (jHz < PROTON_COUPLING_REPORTING_THRESHOLD_HZ) return undefined;
   return {
     jHz,
-    partnerCount: molecule.getAllHydrogens(secondHost),
+    partnerCount: protonCount(molecule, secondHost),
     kind,
     toAtomIndex: secondHost
   };
+}
+
+/** The existing H–H constants, shared with the H–D scaling path without changing their values. */
+function vicinalHostCoupling(
+  molecule: OCL.Molecule,
+  firstHost: number,
+  secondHost: number
+): Pick<NmrCoupling, "jHz" | "kind"> {
+  if (molecule.isAromaticAtom(firstHost) && molecule.isAromaticAtom(secondHost)) {
+    return { jHz: J_AROMATIC_ORTHO, kind: "aromatic-ortho" };
+  }
+  if (isAldehydeCarbon(molecule, firstHost) || isAldehydeCarbon(molecule, secondHost)) {
+    return { jHz: J_ALDEHYDE, kind: "aldehyde" };
+  }
+  return { jHz: J_VICINAL, kind: "vicinal" };
 }
 
 function areBonded(molecule: OCL.Molecule, first: number, second: number): boolean {
@@ -185,9 +213,12 @@ function aromaticMetaPartners(molecule: OCL.Molecule, host: number): number[] {
 function buildMultiplet(couplings: readonly NmrCoupling[]): NmrMultiplet {
   const merged: NmrCoupling[] = [];
   for (const coupling of [...couplings]
-    .filter((candidate) => candidate.jHz >= PROTON_COUPLING_REPORTING_THRESHOLD_HZ)
+    // The H–H cutoff must not discard valid isotope-scaled H–D estimates (e.g. aldehydes).
+    .filter((candidate) => candidate.partnerNucleus === "2H"
+      ? candidate.jHz > 0
+      : candidate.jHz >= PROTON_COUPLING_REPORTING_THRESHOLD_HZ)
     .sort((a, b) => b.jHz - a.jHz)) {
-    const existing = merged.find((m) => m.kind === coupling.kind && Math.abs(m.jHz - coupling.jHz) <= J_MERGE_TOLERANCE);
+    const existing = merged.find((m) => m.kind === coupling.kind && m.partnerNucleus === coupling.partnerNucleus && Math.abs(m.jHz - coupling.jHz) <= J_MERGE_TOLERANCE);
     if (existing) {
       existing.partnerCount += coupling.partnerCount;
     } else {
@@ -202,10 +233,16 @@ function buildMultiplet(couplings: readonly NmrCoupling[]): NmrMultiplet {
 }
 
 function labelFor(groups: readonly NmrCoupling[]): string {
+  const splittingOrder = (group: NmrCoupling): number =>
+    group.partnerCount * (group.partnerNucleus === "2H" ? 2 : 1);
   if (groups.length === 1) {
-    return NAMES[groups[0].partnerCount] ?? "m";
+    return NAMES[splittingOrder(groups[0])] ?? "m";
   }
-  // Compound multiplet: compact only when every group is small (d/t/q); otherwise report "m".
-  const letters = groups.map((group) => (group.partnerCount <= 3 ? NAMES[group.partnerCount] : "m"));
+  // Compound multiplet: retain the existing H d/t/q labels and allow D t/quint/sept labels.
+  const letters = groups.map((group) => {
+    const order = splittingOrder(group);
+    // Retain existing H–H labels; D triplets/quintets/septets can also be nested explicitly.
+    return order <= (group.partnerNucleus === "2H" ? 6 : 3) ? NAMES[order] : "m";
+  });
   return letters.some((letter) => letter === "m") ? "m" : letters.join("");
 }

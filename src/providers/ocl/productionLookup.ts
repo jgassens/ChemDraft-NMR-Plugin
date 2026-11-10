@@ -3,6 +3,7 @@ import * as OCL from "openchemlib";
 import type { NmrNucleus, NmrPredictionOptions } from "../../domain/contracts";
 import { atomEnvironmentCodes, environmentKey, MAX_SPHERES, protonHostAtom } from "./environmentCode";
 import type { CompiledNmrDatabase, NmrDatabaseEntry } from "./localDatabase";
+import { attachedDeuteriumAtoms, isDeuterium, protonCount } from "./hydrogenIsotopes";
 
 export interface Match {
   code: string;
@@ -26,6 +27,9 @@ export interface ProductionLookupContext {
   readonly _inputToCanonical: readonly number[];
   readonly _representativeByAtom: readonly number[];
   readonly _codesByRepresentative: Map<number, readonly string[]>;
+  /** Isotope-blind shift model only; the original molecule still owns counts and couplings. */
+  readonly _shiftMolecule: OCL.Molecule;
+  readonly _inputToShift: readonly number[];
 }
 
 /**
@@ -52,6 +56,23 @@ export function prepareProductionLookup(
   constitution.ensureHelperArrays(OCL.Molecule.cHelperSymmetrySimple);
 
   const canonicalOrder = canonicalAtomOrder(normalized);
+  // C–D is folded to implicit H only for shift lookup/rules. Preserve isotope-aware constitutional
+  // classes so CH3, CHD2 and CD3 are never merged into one proton population. The predictor warns
+  // that this lookup does not model isotope shifts, naming the affected carbon hosts.
+  const deuteriums: number[] = [];
+  for (let atom = 0; atom < normalized.getAllAtoms(); atom += 1) {
+    if (normalized.getAtomicNo(atom) !== 6) continue;
+    deuteriums.push(...attachedDeuteriumAtoms(normalized, atom));
+  }
+  const shiftMolecule = deuteriums.length > 0 ? normalized.getCompactCopy() : normalized;
+  for (const deuterium of deuteriums) {
+    shiftMolecule.markAtomForDeletion(deuterium);
+  }
+  const inputToShift = deuteriums.length > 0
+    ? shiftMolecule.deleteMarkedAtomsAndBonds() as number[] | null
+    : null;
+  shiftMolecule.ensureHelperArrays(OCL.Molecule.cHelperRings);
+  const shiftOrder = inputToShift ? canonicalAtomOrder(shiftMolecule) : canonicalOrder;
   const classes = symmetryClasses(constitution);
   const representativeByAtom = Array.from({ length: normalized.getAllAtoms() }, (_, atom) => atom);
   for (const atoms of classes) {
@@ -61,12 +82,16 @@ export function prepareProductionLookup(
 
   return {
     carbonClasses: classes.filter((atoms) => normalized.getAtomicNo(atoms[0]) === 6),
-    protonClasses: classes.filter((atoms) => normalized.getAllHydrogens(atoms[0]) > 0),
+    protonClasses: classes.filter((atoms) => protonCount(normalized, atoms[0]) > 0),
     maxSpheres,
-    _canonicalMolecule: canonicalOrder.molecule,
-    _inputToCanonical: canonicalOrder.inputToCanonical,
+    _canonicalMolecule: shiftOrder.molecule,
+    _inputToCanonical: canonicalOrder.inputToCanonical.map((_, atom) =>
+      shiftOrder.inputToCanonical[inputToShift ? inputToShift[atom] : atom] ?? -1
+    ),
     _representativeByAtom: representativeByAtom,
-    _codesByRepresentative: new Map()
+    _codesByRepresentative: new Map(),
+    _shiftMolecule: inputToShift ? shiftMolecule : molecule,
+    _inputToShift: inputToShift ?? Array.from({ length: molecule.getAllAtoms() }, (_, atom) => atom)
   };
 }
 
@@ -77,7 +102,7 @@ export function prepareProductionLookup(
  */
 export function productionCodeAtom(molecule: OCL.Molecule, nucleus: NmrNucleus, atom: number): number {
   if (nucleus === "13C") return molecule.getAtomicNo(atom) === 6 ? atom : -1;
-  return molecule.getAtomicNo(atom) === 1 ? protonHostAtom(molecule, atom) : -1;
+  return molecule.getAtomicNo(atom) === 1 && !isDeuterium(molecule, atom) ? protonHostAtom(molecule, atom) : -1;
 }
 
 /**
