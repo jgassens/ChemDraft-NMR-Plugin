@@ -15,7 +15,7 @@ export const nmrForwardPredictionAnalysisType = "nmr.forward-prediction";
 export const nmrPredictorManifest: PluginManifest = {
   id: nmrPredictorPluginId,
   name: "NMR Shift Predictor",
-  version: "0.2.0",
+  version: "0.3.0",
   apiVersion: "^0.1.0",
   license: "MIT",
   description:
