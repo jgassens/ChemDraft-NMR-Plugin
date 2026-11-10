@@ -91,7 +91,7 @@ tree.
   either the database median or mean. Every ¹H HOSE match whose chemistry is
   supported by the bounded tables may carry a second opinion from the versioned
   additive-increment estimator, but only when its tabulated scheme explicitly
-  applies; heteroarenes, imines, unsupported S/Si substituents, charge, isotopes,
+  applies; heteroarenes, imines, unsupported S/Si substituents, charge, unsupported isotope labels,
   and radicals are never silently treated as generic carbon/alkyl chemistry. The
   HOSE value remains the stored primary value; the panel always shows the
   HOSE/increment comparison state and reports exact coverage. Every CH₂ is checked
@@ -125,6 +125,20 @@ Both implement the same `NmrPredictor` interface, so the command / worker / pane
 are provider-agnostic. Prediction runs off the main thread in a Web Worker
 (request-id protocol). Where `Worker` is unavailable, the fallback runs the real
 OCL-native predictor in-thread; it does not substitute fixture values.
+
+Deuterium on any host, including O/N (molfile `D` or explicit `H` with `M ISO`
+mass 2), is matched as hydrogen for both ¹H/¹³C database environments and rule
+estimates. D is excluded from proton counts and equivalence populations: only
+the replaced hydrogen's signal disappears. `NMR_DEUTERIUM_SHIFT_NOT_MODELLED`
+discloses that isotope shifts are ignored at first order.
+**H–D coupling is not shown.** `NMR_DEUTERIUM_COUPLING_NOT_SHOWN` lists affected
+proton host atoms with D on the same or an adjacent heavy atom (geminal/vicinal
+range). Existing H–H splitting uses only the remaining ordinary hydrogens.
+¹³C predictions on D-bearing carbons also carry
+`NMR_CARBON_DEUTERIUM_SPLITTING_NOT_MODELLED`: C–D splitting and isotope shifts
+are not modelled. Other isotope labels retain the existing refusal behavior.
+See [deuterated environment matching](docs/deuterated-environments.md) for examples
+and the warning range.
 
 ## ⚠️ Data provenance
 

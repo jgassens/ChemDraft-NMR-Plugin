@@ -1,6 +1,7 @@
 import * as OCL from "openchemlib";
 
 import type { NmrCoupling, NmrMultiplet } from "../../domain/contracts";
+import { protonCount } from "./hydrogenIsotopes";
 
 /**
  * First-order ¹H multiplicity + coupling estimator from the molecular topology (not from the shift
@@ -104,8 +105,8 @@ function protonCouplingBetweenHosts(
     firstHost === secondHost ||
     molecule.getAtomicNo(firstHost) === 1 ||
     molecule.getAtomicNo(secondHost) === 1 ||
-    molecule.getAllHydrogens(firstHost) <= 0 ||
-    molecule.getAllHydrogens(secondHost) <= 0 ||
+    protonCount(molecule, firstHost) <= 0 ||
+    protonCount(molecule, secondHost) <= 0 ||
     (ignoreLabileHydrogens &&
       (LABILE_PARTNER_ELEMENTS.has(molecule.getAtomicNo(firstHost)) ||
         LABILE_PARTNER_ELEMENTS.has(molecule.getAtomicNo(secondHost))))
@@ -138,7 +139,7 @@ function protonCouplingBetweenHosts(
   if (jHz < PROTON_COUPLING_REPORTING_THRESHOLD_HZ) return undefined;
   return {
     jHz,
-    partnerCount: molecule.getAllHydrogens(secondHost),
+    partnerCount: protonCount(molecule, secondHost),
     kind,
     toAtomIndex: secondHost
   };
@@ -152,7 +153,7 @@ function areBonded(molecule: OCL.Molecule, first: number, second: number): boole
 }
 
 function isAldehydeCarbon(molecule: OCL.Molecule, atom: number): boolean {
-  if (molecule.getAtomicNo(atom) !== 6 || molecule.getAllHydrogens(atom) !== 1) {
+  if (molecule.getAtomicNo(atom) !== 6 || protonCount(molecule, atom) !== 1) {
     return false;
   }
   for (let i = 0; i < molecule.getConnAtoms(atom); i += 1) {
@@ -173,7 +174,7 @@ function aromaticMetaPartners(molecule: OCL.Molecule, host: number): number[] {
     }
     for (let j = 0; j < molecule.getConnAtoms(ortho); j += 1) {
       const meta = molecule.getConnAtom(ortho, j);
-      if (meta !== host && molecule.isAromaticAtom(meta) && molecule.getAllHydrogens(meta) > 0) {
+      if (meta !== host && molecule.isAromaticAtom(meta) && protonCount(molecule, meta) > 0) {
         metas.add(meta);
       }
     }
