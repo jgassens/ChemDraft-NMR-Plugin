@@ -39,8 +39,7 @@ points.
 ## Phase 1: done
 
 All twelve milestones are complete (M11 = a valid "reject" outcome). The plugin
-system is live, the NMR predictor works end to end using NMRShiftDB2 assignments (the database does not
-mark which are experimental) with
+system is live, the NMR predictor works end to end on real experimental data with
 honest provenance and uncertainty, every planned risk was retired, and every
 deferred decision (ADRs 0008–0014) shipped. Remaining work is optional Phase-2
 scope: broader databases (NMRexp), a native dynamic plugin menu, and third-party

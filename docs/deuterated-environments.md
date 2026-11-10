@@ -38,20 +38,24 @@ H–D structure; the warning makes that limitation explicit.
 
 ## Regression examples
 
-The host-style V2000 regression cases request database medians, with labile
-hydrogens enabled:
+The host-style V2000 regression cases use the median option for database matches,
+with labile hydrogens enabled. Unmatched environments can use the rule-based
+estimator; the rule estimates identified below are neither database values nor
+experimental measurements:
 
 - CH3CH2OD retains ethanol's CH3/CH2 ¹H shifts at 1.09/3.50 ppm (3H/2H) and
   ¹³C shifts at 13.93/65.00 ppm, with no OH resonance.
+  The CH2 ¹H value of 3.50 ppm and ¹³C value of 65.00 ppm are rule-based estimates.
   The CH2 host carries the omitted H–D coupling warning; the CH3 host is outside
   the chosen range.
 - CD3OH has no ¹H resonances. Its OH environment is declined with the same
   warning as plain methanol, which also has no supported OH match or fallback.
-  Its carbon is predicted at 65.00 ppm and carries the C–D warning.
+  Its carbon uses a rule-based estimate of 65.00 ppm and carries the C–D warning.
 - C6D5H retains one aromatic ¹H at 7.36 ppm and all six carbons at 128.20 ppm. The proton is
   shown without H–D splitting and carries the omitted-coupling warning.
 - CH3NHD keeps the hydrogen-matched methyl ¹H shift at 2.40 ppm (3H) and ¹³C
-  shift at 32.20 ppm, and has only one N–H proton
+  shift at 32.20 ppm. The methyl ¹H value of 2.40 ppm is a rule-based estimate.
+  It has only one N–H proton
   available as an H–H splitting partner. The unmatched NH environment is declined
   as for plain methylamine; the displayed methyl host carries the H–D warning.
 

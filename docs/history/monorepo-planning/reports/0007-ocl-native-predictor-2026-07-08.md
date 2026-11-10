@@ -5,8 +5,8 @@ Executed inline. Worktree `~/Documents/programming/chemdraw-nmr`, branch `codex/
 ## Outcome
 
 **M10 done and M11 resolved.** The default NMR provider is now a real,
-**OCL-native HOSE/fragment predictor** backed by statistics from
-**NMRShiftDB2** assignments (the database does not mark which are experimental) — not synthetic fixtures. M11 (the
+experimentally-grounded **OCL-native HOSE/fragment predictor** backed by a
+database compiled from **NMRShiftDB2** — not synthetic fixtures. M11 (the
 cheminfo `nmr-predictor` package) was **rejected** on evidence, without
 installing it.
 
@@ -68,7 +68,7 @@ bundled DB carries provenance + dispersion).
 ## Files changed
 
 New: `providers/ocl/` (`environmentCode.ts`, `localDatabase.ts`, `buildDatabase.ts`, `OclHosePredictor.ts`, `nmrshiftdb2.database.json`, `NMRSHIFTDB2_LICENSE.md`), `scripts/build-database.ts`, 3 test files.
-Modified: `domain/contracts.ts` + `schemas.ts` (backend provenance fields), `domain/warnings.ts` (`NMR_LOW_HOSE_SPHERE_MATCH`), `report/composePredictionReport.ts` (database section + NMRShiftDB2 assignment provenance (the database does not mark which are experimental) vs synthetic note), `worker/nmrWorkerCore.ts` + `application/workerPredictor.ts` (OCL default), `apps/desktop/.../registerBundledPlugins.ts` (OCL fallback), `index.ts`, `THIRD_PARTY_NOTICES.md`.
+Modified: `domain/contracts.ts` + `schemas.ts` (backend provenance fields), `domain/warnings.ts` (`NMR_LOW_HOSE_SPHERE_MATCH`), `report/composePredictionReport.ts` (database section + experimental vs synthetic note), `worker/nmrWorkerCore.ts` + `application/workerPredictor.ts` (OCL default), `apps/desktop/.../registerBundledPlugins.ts` (OCL fallback), `index.ts`, `THIRD_PARTY_NOTICES.md`.
 
 ## Next
 

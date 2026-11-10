@@ -87,8 +87,7 @@ No dependencies were added, removed, or version-changed. No lockfile changed.
 - Data version/provenance: `NMRShiftDB2 (full NMReDATA export)`, checksum
   `831a31e78b004a308c7c40989e27d30698a34c506e722a91c78b6ed448fc4720`, NMRShiftDB2 Database
   License (ODbL-derived).
-- Values are statistics from NMRShiftDB2 assignments (the database does not mark which are
-  experimental), not synthetic fixtures (fixture backend
+- Values are aggregated experimental reference statistics, not synthetic fixtures (fixture backend
   remains available for architecture tests).
 - Supported nuclei remain ¹³C and experimental ¹H. Solvent conditioning, conformer averaging,
   stable source atom identity, and fully measured coupling are not supported.
