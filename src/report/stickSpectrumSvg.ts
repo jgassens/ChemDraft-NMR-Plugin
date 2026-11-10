@@ -1,4 +1,5 @@
 import type { NmrNucleus, NmrPredictionResult } from "../domain/contracts";
+import { isRuleEstimated } from "../domain/contracts";
 
 export interface StickSpectrumOptions {
   width?: number;
@@ -15,7 +16,8 @@ export interface StickSpectrumOptions {
 export function renderStickSpectrumSvg(result: NmrPredictionResult, options: StickSpectrumOptions = {}): string {
   const width = options.width ?? 640;
   const height = options.height ?? 220;
-  const margin = { top: 18, right: 22, bottom: 34, left: 22 };
+  const hasEstimates = result.resonances.some(isRuleEstimated);
+  const margin = { top: 18, right: 22, bottom: hasEstimates ? 50 : 34, left: 22 };
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
   const baseY = margin.top + plotHeight;
@@ -33,9 +35,10 @@ export function renderStickSpectrumSvg(result: NmrPredictionResult, options: Sti
       const px = round(x(resonance.deltaPpm));
       const stickHeight = 18 + ((resonance.equivalentNuclei ?? 1) / maxEquivalent) * (plotHeight - 28);
       const topY = round(baseY - stickHeight);
+      const estimated = isRuleEstimated(resonance);
       return (
-        `<line x1="${px}" y1="${baseY}" x2="${px}" y2="${topY}" stroke="#2563eb" stroke-width="2" />` +
-        `<text x="${px}" y="${round(topY - 4)}" font-size="10" text-anchor="middle" fill="#1e3a8a">${resonance.deltaPpm.toFixed(1)}</text>`
+        `<line x1="${px}" y1="${baseY}" x2="${px}" y2="${topY}" stroke="${estimated ? "#64748b" : "#2563eb"}" stroke-width="2"${estimated ? ' stroke-dasharray="4 3"' : ""} />` +
+        `<text x="${px}" y="${round(topY - 4)}" font-size="10" text-anchor="middle" fill="#1e3a8a">${resonance.deltaPpm.toFixed(1)}${estimated ? " est." : ""}</text>`
       );
     })
     .join("");
@@ -60,7 +63,10 @@ export function renderStickSpectrumSvg(result: NmrPredictionResult, options: Sti
     `<line x1="${margin.left}" y1="${baseY}" x2="${margin.left + plotWidth}" y2="${baseY}" stroke="#334155" stroke-width="1.5" />` +
     ticks +
     sticks +
-    `<text x="${round(width / 2)}" y="${height - 6}" font-size="11" text-anchor="middle" fill="#0f172a">${axisLabel}</text>` +
+    `<text x="${round(width / 2)}" y="${height - (hasEstimates ? 22 : 6)}" font-size="11" text-anchor="middle" fill="#0f172a">${axisLabel}</text>` +
+    (hasEstimates
+      ? `<text x="${round(width / 2)}" y="${height - 6}" font-size="10" text-anchor="middle" fill="#475569">est. / dashed stick = rule estimate; no database match</text>`
+      : "") +
     `</svg>`
   );
 }

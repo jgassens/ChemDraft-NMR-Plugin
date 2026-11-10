@@ -53,4 +53,20 @@ describe("renderStickSpectrumSvg", () => {
     expect(predicted).toContain("¹³C δ (ppm) — predicted");
     expect(predicted).not.toContain("synthetic fixture");
   });
+
+  it.each(["1H", "13C"] as const)("labels %s estimates from either explicit source or legacy evidence", (nucleus) => {
+    const base = { ...resonance(1.2), nucleus };
+    for (const estimate of [
+      { ...base, source: "rule-estimate" as const },
+      { ...base, evidence: { method: "rule-estimated" as const } }
+    ]) {
+      const svg = renderStickSpectrumSvg(result([estimate], "hose-fragment"));
+      expect(svg).toContain('stroke-dasharray="4 3"');
+      expect(svg).toContain("1.2 est.</text>");
+      expect(svg).toContain("est. / dashed stick = rule estimate; no database match");
+    }
+    const matched = renderStickSpectrumSvg(result([{ ...base, source: "lookup" }], "hose-fragment"));
+    expect(matched).not.toContain("stroke-dasharray");
+    expect(matched).not.toContain("est.");
+  });
 });

@@ -73,6 +73,7 @@ const NmrMultipletSchema = z.object({
 const NmrResonanceSchema = z.object({
   id: z.string(),
   nucleus: NmrNucleusSchema,
+  source: z.enum(["lookup", "rule-estimate"]).optional(),
   deltaPpm: z.number(),
   atomRefs: z.array(NmrAtomReferenceSchema),
   equivalentNuclei: z.number().optional(),

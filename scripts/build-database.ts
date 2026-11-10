@@ -44,7 +44,7 @@ const database = buildNmrDatabase(rawBytes.toString("utf8"), {
     licenseUrl: "https://nmrshiftdb.nmr.uni-koeln.de/nmrshiftdbhtml/nmrshiftdb2datalicense.txt",
     attribution:
       "Shift data © nmrshiftdb2 contributors, used under the nmrshiftdb2 Database License. Compiled HOSE-code statistics derived by ChemDraft.",
-    note: "Aggregated experimental ¹H/¹³C environment-code shift statistics from atom-assigned NMReDATA.",
+    note: "Aggregated ¹H/¹³C environment-code shift statistics from NMRShiftDB2 assignments (the database does not mark which are experimental).",
     inputSha256,
     inputBytes: rawBytes.byteLength
   }

@@ -2,8 +2,8 @@
 
 `nmrshiftdb2.database.json` is a **compiled data artifact**: aggregated HOSE-code →
 chemical-shift statistics (median/mean/stdev/min/max/n per ¹H and ¹³C atom
-environment). It is a *derivative database* built by ChemDraft from experimental,
-atom-assigned NMR data — it contains **no structures**, only statistics.
+environment). It is a *derivative database* built by ChemDraft from NMRShiftDB2 atom assignments (the database does not mark
+which are experimental) — it contains **no structures**, only statistics.
 
 | Field | Value |
 |---|---|
@@ -21,8 +21,9 @@ The nmrshiftdb2 Database License is ODbL-derived. It **permits use, including
 commercial use**, with these obligations relevant here:
 
 - **Share-alike:** a *derivative database* (this compiled artifact is one) must be
-  offered under the same license. This file + the upstream license text travel
-  with `nmrshiftdb2.database.json`.
+  offered under the same license. This compiled database is offered under the
+  nmrshiftdb2 Database License linked above. This notice ships in the plugin
+  package; the full governing terms are available at the upstream license URL.
 - **Attribution:** credit nmrshiftdb2 (surfaced at runtime in the prediction
   panel's "Reference database" section).
 - **Open-source prediction software:** software relying on the database for
