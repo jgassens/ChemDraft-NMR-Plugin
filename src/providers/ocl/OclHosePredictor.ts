@@ -181,6 +181,7 @@ export class OclHosePredictor implements NmrPredictor {
         );
       }
       if (nucleus === "1H") {
+        warnUnmodelledDeuteriumCoupling(molecule, nucleusResonances, warnings);
         runDisclosureCheck(warnings, "magnetic-equivalence", () =>
           warnLikelySecondOrderPatterns(
             molecule,
@@ -238,6 +239,40 @@ export class OclHosePredictor implements NmrPredictor {
       generatedAt: this.now(),
       depiction: buildStructureDepiction(molecule)
     };
+  }
+}
+
+/** Disclose geminal and heteroatom vicinal paths, which the H–D estimator omits.
+ * Carbon–carbon vicinal paths are computed and shown. Only emitted proton environments are
+ * affected; longer-range paths are outside this check. */
+function warnUnmodelledDeuteriumCoupling(
+  molecule: OCL.Molecule,
+  resonances: readonly NmrResonance[],
+  warnings: NmrPredictionWarning[]
+): void {
+  const atomIndices = [...new Set(resonances.flatMap((resonance) =>
+    resonance.atomRefs.map((ref) => ref.sourceAtomIndex)
+  ))].filter((host) => {
+    if (protonCount(molecule, host) === 0) return false;
+    if (attachedDeuteriumAtoms(molecule, host).length > 0) return true;
+    for (let connection = 0; connection < molecule.getConnAtoms(host); connection += 1) {
+      const neighbor = molecule.getConnAtom(host, connection);
+      if (
+        molecule.getAtomicNo(neighbor) !== 1 &&
+        attachedDeuteriumAtoms(molecule, neighbor).length > 0 &&
+        (molecule.getAtomicNo(host) !== 6 || molecule.getAtomicNo(neighbor) !== 6)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }).sort((a, b) => a - b);
+  if (atomIndices.length > 0) {
+    warnings.push(nmrWarning(
+      NmrWarningCodes.DeuteriumCouplingNotShown,
+      `H–D coupling not shown for proton host atoms ${atomIndices.join(", ")} (zero-based): geminal paths and vicinal paths involving heteroatoms are omitted. Carbon–carbon vicinal H–D coupling is shown where present.`,
+      { atomIndices }
+    ));
   }
 }
 

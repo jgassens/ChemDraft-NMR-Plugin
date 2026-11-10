@@ -45,6 +45,10 @@ Only mass-2 hydrogen receives this treatment. Other isotope labels, including
 mixed D/other-isotope inputs still disclose the unsupported labels. No tritium
 couplings are introduced. The original carbon-bound H–D topology rules are
 unchanged: O–D/N–D, geminal and long-range H–D couplings remain unmodelled.
+`NMR_DEUTERIUM_COUPLING_NOT_SHOWN` identifies displayed proton hosts with omitted
+geminal or heteroatom vicinal paths; computed carbon–carbon vicinal paths do not
+trigger it. Isotope-shift and C–D caveats still make the analysis status partial,
+even when every shift has a database match. Rule estimates also remain partial.
 
 The vendored panel SDK strictly accepts only `jHz` and `partnerCount` per
 coupling; its renderer assumes spin ½. The host keeps its selected spectrometer

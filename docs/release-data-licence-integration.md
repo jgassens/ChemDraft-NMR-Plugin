@@ -16,11 +16,11 @@ obligations documented in `src/providers/ocl/NMRSHIFTDB2_LICENSE.md`.
 ]
 ```
 
-The host's `tools/plugin-extract/gates.ts` reads **package.json** at lines 305–308,
-requires non-empty per-dataset `name` and `license` at lines 322–324, and checks
-that each declared `noticeFile` exists at lines 327–338. The optional `path` above
+The host's `tools/plugin-extract/gates.ts` reads `package.json` and validates
+`dataLicenses`: each dataset requires non-empty `name` and `license` fields,
+and each declared `noticeFile` must exist. The optional `path` above
 records which source artifact this declaration covers; the host does not validate
-that extra metadata. `findBundledDataPaths` (lines 253–285) detects common data
+that extra metadata. `findBundledDataPaths` in that host file detects common data
 directories and extensions. Its heuristic does not detect this JSON outside a
 data directory, so the explicit declaration is still necessary.
 

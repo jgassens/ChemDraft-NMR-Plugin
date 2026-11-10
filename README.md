@@ -145,6 +145,23 @@ are provider-agnostic. Prediction runs off the main thread in a Web Worker
 (request-id protocol). Where `Worker` is unavailable, the fallback runs the real
 OCL-native predictor in-thread; it does not substitute fixture values.
 
+Deuterium on any host, including O/N (molfile `D` or explicit `H` with `M ISO`
+mass 2), is matched as hydrogen for both ¹H/¹³C database environments and rule
+estimates. D is excluded from proton counts and equivalence populations: only
+the replaced hydrogen's signal disappears. `NMR_DEUTERIUM_SHIFT_NOT_MODELLED`
+discloses that isotope shifts are ignored at first order.
+Carbon–carbon vicinal H–D coupling is shown as a typical first-order estimate
+with spin-1 patterns, as described above. `NMR_DEUTERIUM_COUPLING_NOT_SHOWN` lists
+proton host atoms only where geminal H–D or vicinal paths involving heteroatoms
+are omitted. Computed carbon–carbon vicinal paths do not trigger that warning.
+Existing H–H splitting uses only the remaining ordinary hydrogens.
+¹³C predictions on D-bearing carbons also carry
+`NMR_CARBON_DEUTERIUM_SPLITTING_NOT_MODELLED`: C–D splitting and isotope shifts
+are not modelled. Deuterium caveats keep the analysis status partial even when
+all shifts have database matches. Other isotope labels retain the existing refusal behavior.
+See [deuterated environment matching](docs/deuterated-environments.md) for examples
+and the warning range.
+
 ## ⚠️ Data provenance
 
 - The OCL provider's `src/providers/ocl/nmrshiftdb2.database.json` is a

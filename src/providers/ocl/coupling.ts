@@ -180,6 +180,8 @@ function areBonded(molecule: OCL.Molecule, first: number, second: number): boole
 }
 
 function isAldehydeCarbon(molecule: OCL.Molecule, atom: number): boolean {
+  // Classify C(=O)D as an aldehyde too, so its H–D path scales the aldehyde H–H constant.
+  // Observed nuclei and H–H partner counts still use protonCount().
   if (molecule.getAtomicNo(atom) !== 6 || molecule.getAllHydrogens(atom) !== 1) {
     return false;
   }
@@ -201,7 +203,7 @@ function aromaticMetaPartners(molecule: OCL.Molecule, host: number): number[] {
     }
     for (let j = 0; j < molecule.getConnAtoms(ortho); j += 1) {
       const meta = molecule.getConnAtom(ortho, j);
-      if (meta !== host && molecule.isAromaticAtom(meta) && molecule.getAllHydrogens(meta) > 0) {
+      if (meta !== host && molecule.isAromaticAtom(meta) && protonCount(molecule, meta) > 0) {
         metas.add(meta);
       }
     }

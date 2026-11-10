@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import * as OCL from "openchemlib";
 import { describe, expect, it } from "vitest";
 
+import { determineAnalysisStatus } from "../application/determineAnalysisStatus";
 import type { NmrPredictionResult } from "../domain/contracts";
 import { firstOrderLines } from "../domain/firstOrderCoupling";
 import { NmrWarningCodes } from "../domain/warnings";
@@ -8,6 +10,7 @@ import { OclHosePredictor } from "../providers/ocl/OclHosePredictor";
 import { prepareProductionLookup, productionEnvironmentCodes } from "../providers/ocl/productionLookup";
 import { estimateProtonIncrement } from "../providers/ocl/incrementEstimator";
 import { estimateCarbonShiftWithApplicability } from "../providers/ocl/functionalGroupFallback";
+import { protonCount } from "../providers/ocl/hydrogenIsotopes";
 
 // ChemDraft canvas-style V2000: planar coordinates, Kekule bonds, implicit ordinary H,
 // and explicit H atoms with M ISO mass 2. Deliberately not serialized through OCL.
@@ -47,6 +50,7 @@ function protons(result: NmrPredictionResult) {
 }
 
 function assertFirstOrderDisclosure(result: NmrPredictionResult) {
+  expect(determineAnalysisStatus(result)).toBe("partial");
   expect(result.warnings.map((warning) => warning.code)).not.toContain(NmrWarningCodes.IsotopeNotSupported);
   expect(result.warnings.find((warning) => warning.code === NmrWarningCodes.DeuteriumShiftNotModelled))
     .toMatchObject({ message: expect.stringContaining("treated as hydrogen for database environment matching and rule estimates") });
@@ -70,6 +74,14 @@ describe("deuterated host molfile environments", () => {
       expect(atHost(result).atomRefs).toEqual(atHost(plain).atomRefs);
     }
     expect(protons(result).flatMap((r) => r.atomRefs.map((ref) => ref.sourceAtomIndex)).sort()).toEqual([0, 1]);
+    expect(protons(result).map((r) => r.deltaPpm)).toEqual([1.09, 3.5]);
+    expect(protons(result).map((r) => r.multiplet)).toEqual([
+      { label: "t", couplings: [{ jHz: 7, partnerCount: 2, kind: "vicinal", toAtomIndex: 1 }] },
+      { label: "q", couplings: [{ jHz: 7, partnerCount: 3, kind: "vicinal", toAtomIndex: 0 }] }
+    ]);
+    expect(result.warnings.find((w) => w.code === NmrWarningCodes.DeuteriumCouplingNotShown))
+      .toMatchObject({ atomIndices: [1], message: expect.stringContaining("H–D coupling not shown") });
+    expect(result.warnings.map((w) => w.code)).not.toContain(NmrWarningCodes.CarbonDeuteriumSplittingNotModelled);
     assertFirstOrderDisclosure(result);
   });
 
@@ -79,7 +91,8 @@ describe("deuterated host molfile environments", () => {
     expect(protons(result)).toHaveLength(0);
     const unmatchedOH = plain.warnings.find((warning) => warning.code === NmrWarningCodes.PartialPrediction);
     expect(unmatchedOH).toBeDefined();
-    expect(result.warnings.map((warning) => warning.code)).toContain(unmatchedOH!.code);
+    expect(result.warnings.find((warning) => warning.code === unmatchedOH!.code)).toEqual(unmatchedOH);
+    expect(result.warnings.map((w) => w.code)).not.toContain(NmrWarningCodes.DeuteriumCouplingNotShown);
     assertFirstOrderDisclosure(result);
   });
 
@@ -107,6 +120,7 @@ describe("deuterated host molfile environments", () => {
     expect(proton.deltaPpm).toBe(protons(plain)[0].deltaPpm);
     expect(proton.deltaPpm).toBeGreaterThan(7);
     expect(proton.deltaPpm).toBeLessThan(8);
+    expect(proton.deltaPpm).toBeCloseTo(7.36, 2);
     expect(proton.multiplet).toMatchObject({ label: "quint", couplings: [
       { partnerNucleus: "2H", kind: "aromatic-ortho", partnerCount: 2, jHz: 7.8 * 0.1535 }
     ] });
@@ -114,11 +128,92 @@ describe("deuterated host molfile environments", () => {
       .toEqual([1, 2, 3, 2, 1]);
     expect(result.warnings.find((w) => w.code === NmrWarningCodes.DeuteriumShiftNotModelled)?.message)
       .toContain("H–D couplings are typical first-order estimates");
+    expect(result.warnings.map((w) => w.code)).not.toContain(NmrWarningCodes.DeuteriumCouplingNotShown);
     const carbons = result.resonances.filter((r) => r.nucleus === "13C");
     expect(carbons.reduce((sum, r) => sum + r.equivalentNuclei, 0)).toBe(6);
     expect(carbons.flatMap((r) => r.atomRefs.map((ref) => ref.sourceAtomIndex)).sort()).toEqual([0, 1, 2, 3, 4, 5]);
     for (const carbon of carbons) expect(carbon.deltaPpm).toBe(plain.resonances.find((r) => r.nucleus === "13C")?.deltaPpm);
     assertFirstOrderDisclosure(result);
+  });
+
+  it("leaves unlabelled ethanol byte-for-byte unchanged from the base commit", async () => {
+    // Complete serialized result captured at 0eb8a69 with the same fixed clock and request.
+    const result = await predict(ethanol);
+    expect(createHash("sha256").update(JSON.stringify(result)).digest("hex"))
+      .toBe("58dd353b57af856547ae556c57a16b1c75bea1d3d5b839ae8ef9065ebc4c4404");
+  });
+
+  it("CH3NHD retains the methyl shift and declines NH as for plain methylamine", async () => {
+    const result = await predict(methylamineNHD);
+    const plain = await predict(hostMolfile(["C", "N"], [[1, 2, 1]]));
+    expect(protons(result).map((r) => r.deltaPpm)).toEqual(protons(plain).map((r) => r.deltaPpm));
+    expect(protons(result).map((r) => r.equivalentNuclei)).toEqual([3]);
+    const molecule = OCL.Molecule.fromMolfile(methylamineNHD);
+    molecule.ensureHelperArrays(OCL.Molecule.cHelperRings);
+    expect(protonCount(molecule, 1)).toBe(1);
+    expect(result.warnings.find((w) => w.code === NmrWarningCodes.PartialPrediction))
+      .toEqual(plain.warnings.find((w) => w.code === NmrWarningCodes.PartialPrediction));
+    expect(protons(result).find((r) => r.atomRefs[0].sourceAtomIndex === 0)?.multiplet)
+      .toMatchObject({ label: "d", couplings: [{ partnerCount: 1 }] });
+    expect(result.warnings.find((w) => w.code === NmrWarningCodes.DeuteriumCouplingNotShown)?.atomIndices)
+      .toEqual([0]);
+    assertFirstOrderDisclosure(result);
+  });
+
+  it("matches a literal molfile D label the same way as H with M ISO 2", async () => {
+    const literalD = hostMolfile(["C", "C", "O", "D"], [[1, 2, 1], [2, 3, 1], [3, 4, 1]]);
+    expect(await predict(literalD)).toEqual(await predict(ethanolOD));
+  });
+
+  it("warns for omitted geminal coupling, excluding shown vicinal coupling and more distant protons", async () => {
+    const result = await predict(hostMolfile(["C", "C", "O", "H"],
+      [[1, 2, 1], [2, 3, 1], [1, 4, 1]], [4])); // CH2DCH2OH
+    expect(protons(result).map((r) => r.equivalentNuclei).sort()).toEqual([1, 2, 2]);
+    expect(result.warnings.find((w) => w.code === NmrWarningCodes.DeuteriumCouplingNotShown)?.atomIndices)
+      .toEqual([0]);
+    expect(protons(result).find((r) => r.atomRefs[0].sourceAtomIndex === 1)?.multiplet?.couplings)
+      .toContainEqual(expect.objectContaining({ partnerNucleus: "2H", partnerCount: 1, jHz: 7 * 0.1535 }));
+  });
+
+  it("keeps isotopomer equivalence classes distinct and excludes D from H–H splitting", async () => {
+    const result = await predict(hostMolfile(["C", "C", "H", "H"],
+      [[1, 2, 1], [2, 3, 1], [2, 4, 1]], [3, 4])); // CH3CHD2
+    expect(protons(result).map((r) => r.equivalentNuclei).sort()).toEqual([1, 3]);
+    expect(protons(result).find((r) => r.atomRefs[0].sourceAtomIndex === 0)?.multiplet)
+      .toMatchObject({ label: "dquint", couplings: [
+        { partnerCount: 1, jHz: 7 },
+        { partnerNucleus: "2H", partnerCount: 2, jHz: 7 * 0.1535 }
+      ] });
+    expect(result.warnings.find((w) => w.code === NmrWarningCodes.DeuteriumCouplingNotShown)?.atomIndices)
+      .toEqual([1]);
+    const fullyDeuterated = await predict(hostMolfile(["C", "C", "H", "H", "H"],
+      [[1, 2, 1], [2, 3, 1], [2, 4, 1], [2, 5, 1]], [3, 4, 5])); // CH3CD3
+    expect(protons(fullyDeuterated)).toHaveLength(1);
+    expect(protons(fullyDeuterated)[0]).toMatchObject({ equivalentNuclei: 3, multiplet: {
+      label: "sept", couplings: [{ partnerNucleus: "2H", partnerCount: 3, jHz: 7 * 0.1535 }]
+    } });
+    expect(fullyDeuterated.warnings.map((w) => w.code)).not.toContain(NmrWarningCodes.DeuteriumCouplingNotShown);
+  });
+
+  it("does not warn about H–D coupling when D is outside the geminal/vicinal range", async () => {
+    const result = await predict(hostMolfile(["C", "C", "C", "C", "O", "H"],
+      [[1, 2, 1], [2, 3, 1], [2, 4, 1], [2, 5, 1], [5, 6, 1]], [6])); // (CH3)3COD
+    expect(protons(result).reduce((sum, r) => sum + r.equivalentNuclei, 0)).toBe(9);
+    expect(result.warnings.map((w) => w.code)).not.toContain(NmrWarningCodes.DeuteriumCouplingNotShown);
+    assertFirstOrderDisclosure(result);
+  });
+
+  it("emits the C–D warning only for 13C requests and the H–D warning only for 1H", async () => {
+    for (const nuclei of [["1H"], ["13C"]] as const) {
+      const result = await predictor.predict({ structure: {
+        format: "molfile-v2000", value: hostMolfile(["C", "H"], [[1, 2, 1]], [2]) // CH3D: omitted geminal H–D
+      },
+        nuclei: [...nuclei], options, sourceFingerprint: "regression" });
+      expect(result.warnings.some((w) => w.code === NmrWarningCodes.CarbonDeuteriumSplittingNotModelled))
+        .toBe(nuclei[0] === "13C");
+      expect(result.warnings.some((w) => w.code === NmrWarningCodes.DeuteriumCouplingNotShown))
+        .toBe(nuclei[0] === "1H");
+    }
   });
 
   it.each([["CH3CH2OD", ethanolOD], ["CD3OH", methanolCD3], ["C6D5H", benzeneD5], ["CH3NHD", methylamineNHD]])
