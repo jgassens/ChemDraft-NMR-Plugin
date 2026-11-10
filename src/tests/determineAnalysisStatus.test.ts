@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { NmrPredictionResult, NmrResonance } from "../domain/contracts";
 import { determineAnalysisStatus } from "../application/determineAnalysisStatus";
+import { NmrWarningCodes } from "../domain/warnings";
 
 function result(resonances: NmrResonance[], warningCodes: string[] = []): NmrPredictionResult {
   return {
@@ -37,7 +38,18 @@ describe("determineAnalysisStatus", () => {
       flags: ["rule-estimated"]
     };
     expect(determineAnalysisStatus(result([estimated]))).toBe("partial");
+    expect(determineAnalysisStatus(result([{ ...resonance, source: "rule-estimate" }]))).toBe("partial");
     expect(determineAnalysisStatus(result([resonance], ["NMR_RULE_ESTIMATED"]))).toBe("partial");
+  });
+
+  it.each([
+    NmrWarningCodes.DeuteriumShiftNotModelled,
+    NmrWarningCodes.CarbonDeuteriumSplittingNotModelled,
+    NmrWarningCodes.DeuteriumCouplingNotShown
+  ])("is partial for matched environments with the deuterium caveat %s", (code) => {
+    const matched: NmrResonance = { ...resonance, source: "lookup" };
+    expect(determineAnalysisStatus(result([matched]))).toBe("complete");
+    expect(determineAnalysisStatus(result([matched], [code]))).toBe("partial");
   });
 
   it("is complete when everything matched", () => {

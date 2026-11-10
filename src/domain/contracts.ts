@@ -97,6 +97,8 @@ export interface NmrPredictionUncertainty {
 export interface NmrCoupling {
   jHz: number;
   partnerCount: number;
+  /** Absent means ¹H (I = 1/2); ²H partners have I = 1 and give 2n+1 lines. */
+  partnerNucleus?: "2H";
   kind: "vicinal" | "aromatic-ortho" | "aromatic-meta" | "aldehyde" | "other";
   /** A representative partner atom index (for future peak↔peak linking). */
   toAtomIndex?: number;
@@ -112,6 +114,8 @@ export interface NmrMultiplet {
 export interface NmrResonance {
   id: string;
   nucleus: NmrNucleus;
+  /** Origin of the primary shift. Optional only for older schema-v1 session data. */
+  source?: "lookup" | "rule-estimate";
   deltaPpm: number;
   atomRefs: readonly NmrAtomReference[];
   /** Predicted count of equivalent nuclei. This is NOT an experimental integral. */
@@ -135,6 +139,11 @@ export interface NmrResonance {
     estimator?: NmrEstimateProvenance;
   };
   flags: readonly string[];
+}
+
+/** Preserve estimate labelling for saved results predating the explicit source field. */
+export function isRuleEstimated(resonance: NmrResonance): boolean {
+  return resonance.source === "rule-estimate" || resonance.evidence?.method === "rule-estimated";
 }
 
 export interface NmrPredictionBackend {

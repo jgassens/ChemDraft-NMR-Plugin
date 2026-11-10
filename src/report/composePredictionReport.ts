@@ -6,19 +6,22 @@ import type {
   PluginSelectedMolecule
 } from "@chemdraft/plugin-api";
 
-import { PROTON_HIGH_DISPERSION_CROSS_CHECK_PPM } from "../domain/contracts";
+import { isRuleEstimated, PROTON_HIGH_DISPERSION_CROSS_CHECK_PPM } from "../domain/contracts";
 import type { NmrNucleus, NmrPredictionResult, NmrResonance } from "../domain/contracts";
 import type { CommandError } from "../application/mapSelection";
 import { MEASURED_ACCURACY } from "../providers/ocl/measuredAccuracy";
+import { DEUTERIUM_PROTON_GYROMAGNETIC_RATIO } from "../domain/firstOrderCoupling";
+import { NmrWarningCodes } from "../domain/warnings";
+import { deuteriumMultipletComponents, hasDeuteriumCoupling } from "./deuteriumMultiplet";
 
 const PANEL_TITLE = "NMR Prediction";
 const SYNTHETIC_DISCLAIMER =
   "Synthetic fixture values — a deterministic architecture demo, not experimental reference data.";
 const EXPERIMENTAL_NOTE =
-  "Statistical predictions from aggregated experimental reference shifts. Confidence is low where the " +
+  "Statistical predictions from NMRShiftDB2 assignments (the database does not mark which are experimental). Confidence is low where the " +
   "reference population is small or only a shallow environment matched — see notices above.";
 const MIXED_METHOD_NOTE =
-  "Mixed result: HOSE peaks are statistical predictions from aggregated experimental reference shifts; " +
+  "Mixed result: HOSE peaks use statistics from NMRShiftDB2 assignments (the database does not mark which are experimental); " +
   "rule-estimated shifts are marked ≈ in the table and drawn muted/italic in the spectrum.";
 const RULE_ONLY_NOTE =
   "Rule-estimated shifts from bounded increment and functional-class tables; no HOSE reference match " +
@@ -99,8 +102,23 @@ export function composePredictionReport(
     sections.push(...estimateProvenanceSections(result));
     sections.push(linkedFigureSection(result, methods));
     sections.push(resonanceTable(result));
+    if (methods.hasRules) {
+      sections.push({
+        kind: "text",
+        title: "Rule-estimate legend",
+        body: "≈ / est. = rule-estimated shift with no database match. Spectrum labels include est.; linked peaks are muted/italic and exported SVG sticks are dashed. Atom indices are zero-based; ¹H indices identify host atoms."
+      });
+    }
   }
   sections.push(...noticeSections(result));
+  if (result.resonances.some(hasDeuteriumCoupling) ||
+      result.warnings.some((warning) => warning.code === NmrWarningCodes.DeuteriumShiftNotModelled)) {
+    sections.push({
+      kind: "text",
+      title: "H–D coupling legend",
+      body: `¹H–²H couplings are typical first-order estimates: J(HD) = ${DEUTERIUM_PROTON_GYROMAGNETIC_RATIO.toFixed(4)} × J(HH), based on the IUPAC Recommendations 2001 magnetogyric ratios (Tables 1 and 2; R. K. Harris et al., Pure Appl. Chem. 73(11), 1795–1818, doi:10.1351/pac200173111795). D has spin I = 1: n equivalent D give 2n+1 lines, with intensities 1:1:1 (1D), 1:2:3:2:1 (2D), or 1:3:6:7:6:3:1 (3D), nested with H–H splitting. Line spacing follows the spectrometer field selected in the spectrum. Geminal H–D is omitted because this model has no geminal H–H constant. Isotope shifts are not modelled.`
+    });
+  }
   sections.push(...databaseSection(result));
   sections.push({ kind: "text", body: resultDisclaimer(result, methods) });
 
@@ -136,7 +154,7 @@ function resultMethodSummary(result: NmrPredictionResult): ResultMethodSummary {
   return {
     fixture: result.backend.method === "fixture-fragment",
     hasHose: result.resonances.some((resonance) => resonance.evidence?.method === "hose-fragment"),
-    hasRules: result.resonances.some((resonance) => resonance.evidence?.method === "rule-estimated"),
+    hasRules: result.resonances.some(isRuleEstimated),
     empty: result.resonances.length === 0
   };
 }
@@ -159,16 +177,17 @@ function resultMethodLabel(result: NmrPredictionResult, methods: ResultMethodSum
 
 function linkedFigureSection(result: NmrPredictionResult, methods: ResultMethodSummary): PluginLinkedFigureSection {
   const nucleus = result.resonances[0]?.nucleus ?? "13C";
-  const peaks: PluginLinkedFigurePeak[] = result.resonances.map((resonance) => {
+  const peaks: PluginLinkedFigurePeak[] = result.resonances.flatMap((resonance) => {
     const peak: PluginLinkedFigurePeak = {
       id: resonance.id,
       ppm: resonance.deltaPpm,
       intensity: resonance.equivalentNuclei ?? 1,
-      label: resonance.deltaPpm.toFixed(2),
+      label: `${resonance.deltaPpm.toFixed(2)}${isRuleEstimated(resonance) ? " est." : ""}`,
       atomIndices: resonance.atomRefs.map((ref) => ref.sourceAtomIndex)
     };
     const tier = confidenceTier(resonance);
-    if (tier === "estimated") {
+    // The host uses this flag to disclose rule estimates in spectrum exports.
+    if (isRuleEstimated(resonance)) {
       peak.estimated = true;
     } else if (tier === "high" || tier === "medium" || tier === "low") {
       peak.confidence = tier;
@@ -179,6 +198,18 @@ function linkedFigureSection(result: NmrPredictionResult, methods: ResultMethodS
       peak.alternativePpm = resonance.crossCheck.incrementPpm;
     }
     const couplings = resonance.multiplet?.couplings ?? [];
+    const components = deuteriumMultipletComponents(resonance);
+    if (components) {
+      return components.map((component, index) => ({
+        ...peak,
+        id: `${peak.id}-line-${index}`,
+        intensity: peak.intensity * component.intensity,
+        label: index === components.length - 1 ? `${peak.label} (${resonance.multiplet?.label}; H–D est.)` : "",
+        ...(component.separationHz === 0 ? {} : {
+          couplings: [{ jHz: component.separationHz, partnerCount: 1 }]
+        })
+      }));
+    }
     if (couplings.length > 0) {
       peak.couplings = couplings.map((coupling) => ({ jHz: coupling.jHz, partnerCount: coupling.partnerCount }));
     }
@@ -193,7 +224,9 @@ function linkedFigureSection(result: NmrPredictionResult, methods: ResultMethodS
   const section: PluginLinkedFigureSection = {
     kind: "linkedFigure",
     title: `Predicted ${nucleusLabel(nucleus)} NMR`,
-    caption: figureCaption(methods),
+    caption: figureCaption(methods) + (result.resonances.some(hasDeuteriumCoupling)
+      ? " H–D couplings are typical first-order estimates; H–D multiplets use spin-1 intensities and follow the selected spectrometer field (see H–D coupling legend)."
+      : ""),
     spectrum: {
       nucleus,
       domain: spectrumDomain(nucleus, shifts),
@@ -229,14 +262,14 @@ function linkedFigureSection(result: NmrPredictionResult, methods: ResultMethodS
 
 function figureCaption(methods: ResultMethodSummary): string {
   const interaction =
-    "Peak height represents predicted equivalent nuclei, not experimental integration. " +
+    "¹H–¹H couplings are typical first-order estimates. Peak height represents predicted equivalent nuclei, not experimental integration. " +
     "Scroll to zoom, drag to pan; hover a peak to highlight its atoms.";
   if (methods.fixture) return `Synthetic fixture spectrum. ${interaction}`;
   if (methods.hasHose && methods.hasRules) {
-    return `Mixed HOSE and rule-estimated spectrum; muted italic peaks mark rule estimates. ${interaction}`;
+    return `Mixed HOSE and rule-estimated spectrum; muted italic peaks labelled est. mark rule estimates. ${interaction}`;
   }
   if (methods.hasRules) {
-    return `Rule-estimated spectrum; muted italic peaks mark coarse table estimates. ${interaction}`;
+    return `Rule-estimated spectrum; muted italic peaks labelled est. mark coarse table estimates. ${interaction}`;
   }
   return interaction;
 }
@@ -261,7 +294,7 @@ function resonanceTable(result: NmrPredictionResult): PluginPanelSection {
   const rows = [...result.resonances]
     .sort((a, b) => b.deltaPpm - a.deltaPpm)
     .map((resonance) => {
-      const estimated = resonance.evidence?.method === "rule-estimated";
+      const estimated = isRuleEstimated(resonance);
       return [
         nucleusLabel(resonance.nucleus),
         `${estimated ? "≈" : ""}${resonance.deltaPpm.toFixed(2)}`,
@@ -298,7 +331,9 @@ function resonanceTable(result: NmrPredictionResult): PluginPanelSection {
 /** First-order coupling constants (estimated, topology-based) for a resonance; "—" when none. */
 function formatCouplings(resonance: NmrResonance): string {
   const couplings = resonance.multiplet?.couplings ?? [];
-  return couplings.length === 0 ? "—" : couplings.map((coupling) => coupling.jHz.toFixed(1)).join(", ");
+  return couplings.length === 0 ? "—" : couplings.map((coupling) =>
+    coupling.jHz.toFixed(1) + (coupling.partnerNucleus === "2H" ? " (H–D est.)" : "")
+  ).join(", ");
 }
 
 function formatUncertainty(resonance: NmrResonance): string {
@@ -321,7 +356,7 @@ type ConfidenceTier = "high" | "medium" | "low" | "estimated" | "unknown";
  *  `unknown` = a match with no sphere/n basis (e.g. the synthetic fixture). */
 function confidenceTier(resonance: NmrResonance): ConfidenceTier {
   const evidence = resonance.evidence;
-  if (evidence?.method === "rule-estimated") {
+  if (isRuleEstimated(resonance)) {
     return "estimated";
   }
   const sphere = evidence?.matchedSphere;

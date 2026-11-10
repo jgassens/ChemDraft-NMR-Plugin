@@ -3,7 +3,15 @@
   "version": "0.2.0",
   "type": "module",
   "license": "MIT",
-  "description": "ChemDraft NMR shift predictor plugin — 1H/13C HOSE-fragment prediction over NMRShiftDB2-derived statistics.",
+  "dataLicenses": [
+    {
+      "name": "NMRShiftDB2-derived HOSE shift statistics",
+      "path": "src/providers/ocl/nmrshiftdb2.database.json",
+      "license": "nmrshiftdb2 Database License (ODbL-derived)",
+      "noticeFile": "src/providers/ocl/NMRSHIFTDB2_LICENSE.md"
+    }
+  ],
+  "description": "ChemDraft NMR shift predictor plugin — 1H/13C HOSE-fragment prediction over statistics from NMRShiftDB2 assignments (the database does not mark which are experimental).",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jgassens/ChemDraft-NMR-Plugin.git"
@@ -13,7 +21,7 @@
     "url": "https://github.com/jgassens/ChemDraft-NMR-Plugin/issues"
   },
   "scripts": {
-    "package": "tsx tools/plugin-package/package.ts -- . --name nmr-predictor",
+    "package": "tsx scripts/package.ts -- . --name nmr-predictor",
     "test": "vitest run"
   },
   "dependencies": {

@@ -86,12 +86,12 @@ tree.
 ## Providers
 
 - **OCL-native (default)** — uses OpenChemLib to derive atom environment codes and
-  looks them up in a database compiled from **NMRShiftDB2** experimental
-  assignments (deepest-sphere-first, with honest coverage warnings). Requests honor
+  looks them up in statistics compiled from **NMRShiftDB2** assignments
+  (the database does not mark which are experimental) (deepest-sphere-first, with honest coverage warnings). Requests honor
   either the database median or mean. Every ¹H HOSE match whose chemistry is
   supported by the bounded tables may carry a second opinion from the versioned
   additive-increment estimator, but only when its tabulated scheme explicitly
-  applies; heteroarenes, imines, unsupported S/Si substituents, charge, isotopes,
+  applies; heteroarenes, imines, unsupported S/Si substituents, charge, unsupported isotope labels,
   and radicals are never silently treated as generic carbon/alkyl chemistry. The
   HOSE value remains the stored primary value; the panel always shows the
   HOSE/increment comparison state and reports exact coverage. Every CH₂ is checked
@@ -118,6 +118,25 @@ tree.
   estimates, and a full spin analysis may be needed. Disclosure checks are
   advisory: if OpenChemLib cannot complete one, the predictor reports that
   limitation and still returns the available shifts.
+  Deuterium on any host, including O/N (molfile `D` or explicit `H` with `M ISO`
+  mass 2), is excluded from ¹H counts: only the replaced proton's signal disappears.
+  Database environment matching and rule estimates for both ¹H and ¹³C treat D
+  as H, with `NMR_DEUTERIUM_SHIFT_NOT_MODELLED` disclosing that isotope shifts
+  are ignored at first order. Other isotope labels (including ¹³C, ¹⁵N and ³H/T)
+  retain the existing unsupported-isotope behavior. Carbon-bound vicinal H–D
+  couplings are **typical first-order estimates**, using
+  the existing H–H class constant × γ(²H)/γ(¹H) = 0.1535 (Harris et al., IUPAC
+  Recommendations 2001, Table 1 (¹H) and Table 2 (²H), doi:10.1351/pac200173111795;
+  ratio verified against the paper on 2026-11-10). Equivalent D partners have spin 1:
+  one/two/three D give triplet/quintet/septet intensities 1:1:1,
+  1:2:3:2:1, and 1:3:6:7:6:3:1, nested with H–H splitting. Geminal H–D is
+  omitted because the model has no geminal H–H constant. ¹³C predictions on
+  D-bearing carbons additionally carry `NMR_CARBON_DEUTERIUM_SPLITTING_NOT_MODELLED`,
+  identifying the carbon indices and stating that C–D splitting and isotope shifts
+  are not modelled. H–D and nested H–H line spacing follows the host's
+  selected spectrometer field, preserving J in Hz and spin-1 intensities. Standalone
+  SVGs accept `protonFrequencyMHz` (default 400 MHz) and display the field.
+  See [H–D implementation notes](docs/deuterium-coupling.md).
 - **Fixture** — deterministic synthetic data used for tests and explicit fixture
   provider requests.
 
@@ -125,6 +144,23 @@ Both implement the same `NmrPredictor` interface, so the command / worker / pane
 are provider-agnostic. Prediction runs off the main thread in a Web Worker
 (request-id protocol). Where `Worker` is unavailable, the fallback runs the real
 OCL-native predictor in-thread; it does not substitute fixture values.
+
+Deuterium on any host, including O/N (molfile `D` or explicit `H` with `M ISO`
+mass 2), is matched as hydrogen for both ¹H/¹³C database environments and rule
+estimates. D is excluded from proton counts and equivalence populations: only
+the replaced hydrogen's signal disappears. `NMR_DEUTERIUM_SHIFT_NOT_MODELLED`
+discloses that isotope shifts are ignored at first order.
+Carbon–carbon vicinal H–D coupling is shown as a typical first-order estimate
+with spin-1 patterns, as described above. `NMR_DEUTERIUM_COUPLING_NOT_SHOWN` lists
+proton host atoms only where geminal H–D or vicinal paths involving heteroatoms
+are omitted. Computed carbon–carbon vicinal paths do not trigger that warning.
+Existing H–H splitting uses only the remaining ordinary hydrogens.
+¹³C predictions on D-bearing carbons also carry
+`NMR_CARBON_DEUTERIUM_SPLITTING_NOT_MODELLED`: C–D splitting and isotope shifts
+are not modelled. Deuterium caveats keep the analysis status partial even when
+all shifts have database matches. Other isotope labels retain the existing refusal behavior.
+See [deuterated environment matching](docs/deuterated-environments.md) for examples
+and the warning range.
 
 ## ⚠️ Data provenance
 
@@ -134,9 +170,20 @@ OCL-native predictor in-thread; it does not substitute fixture values.
   attribution) — see `src/providers/ocl/NMRSHIFTDB2_LICENSE.md`.
 - The fixture provider's values are **synthetic**, labeled as such everywhere.
 - Coverage is intentionally narrow. Applicable coarse estimates are marked partial
-  and include per-resonance estimator ID, version, and method. An unmatched
+  and include per-resonance `source: "rule-estimate"`, estimator ID, version, and
+  method; database matches carry `source: "lookup"`. Rule shifts have an `≈` prefix
+  and `est.` table cell, `est.` spectrum labels, and dashed sticks in exported SVGs,
+  with a legend. A warning lists the affected zero-based atom indices (host atoms
+  for ¹H). Fully matched shifts carry no rule-estimate markers. An unmatched
   unsupported environment is omitted with a stable warning instead of receiving a
   fabricated generic value.
+
+The original plugin code is **MIT-licensed** (`LICENSE`); the bundled database is
+under the separate **nmrshiftdb2 Database License (ODbL-derived)**, declared per
+dataset in root `package.json` as `dataLicenses`, with the source dataset path and
+notice file. `npm run package` includes that metadata, the declared notice, and
+`THIRD_PARTY_NOTICES.md` in the installable ZIP. The MIT grant does not cover the
+database. See `docs/release-data-licence-integration.md` for packaging details.
 
 See `THIRD_PARTY_NOTICES.md` for the full third-party attribution.
 

@@ -11,6 +11,7 @@ import {
 
 describe("nmrPredictorManifest", () => {
   it("is a valid plugin manifest", () => {
+    expect(nmrPredictorManifest).not.toHaveProperty("dataLicenses");
     expect(validatePluginManifest(nmrPredictorManifest).ok).toBe(true);
     const parsed = parsePluginManifest(nmrPredictorManifest);
     expect(parsed.id).toBe("org.chemdraft.nmr.predictor");
