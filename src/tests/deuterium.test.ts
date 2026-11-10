@@ -223,7 +223,8 @@ describe("first-order ¹H–²H coupling", () => {
     expect(text).toContain("H–D est.");
     expect(text).toContain("typical first-order estimates");
     expect(text).toContain(String(DEUTERIUM_PROTON_GYROMAGNETIC_RATIO));
-    expect(text).toContain("Table 1, doi:10.1351/pac200173111795");
+    expect(text).toContain("IUPAC Recommendations 2001 magnetogyric ratios (Tables 1 and 2");
+    expect(text).toContain("J(HD) = 0.1535 × J(HH)");
     expect(text).toContain("selected spectrometer field");
     expect(text).not.toContain("fixed 400 MHz");
     const svg = renderStickSpectrumSvg(result);

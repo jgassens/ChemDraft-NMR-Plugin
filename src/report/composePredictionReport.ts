@@ -116,7 +116,7 @@ export function composePredictionReport(
     sections.push({
       kind: "text",
       title: "H–D coupling legend",
-      body: `¹H–²H couplings are typical first-order estimates: J(H,D) = J(H,H) × γ(²H)/γ(¹H), with γ(²H)/γ(¹H) = ${DEUTERIUM_PROTON_GYROMAGNETIC_RATIO}. Source: IUPAC Recommendations 2001, R. K. Harris et al., Pure Appl. Chem. 73(11), 1795–1818, Table 1, doi:10.1351/pac200173111795 (ratio verification against the paper pending). D has spin I = 1: n equivalent D give 2n+1 lines, with intensities 1:1:1 (1D), 1:2:3:2:1 (2D), or 1:3:6:7:6:3:1 (3D), nested with H–H splitting. Line spacing follows the spectrometer field selected in the spectrum. Geminal H–D is omitted because this model has no geminal H–H constant. Isotope shifts are not modelled.`
+      body: `¹H–²H couplings are typical first-order estimates: J(HD) = 0.1535 × J(HH), based on the IUPAC Recommendations 2001 magnetogyric ratios (Tables 1 and 2; R. K. Harris et al., Pure Appl. Chem. 73(11), 1795–1818, doi:10.1351/pac200173111795). D has spin I = 1: n equivalent D give 2n+1 lines, with intensities 1:1:1 (1D), 1:2:3:2:1 (2D), or 1:3:6:7:6:3:1 (3D), nested with H–H splitting. Line spacing follows the spectrometer field selected in the spectrum. Geminal H–D is omitted because this model has no geminal H–H constant. Isotope shifts are not modelled.`
     });
   }
   sections.push(...databaseSection(result));

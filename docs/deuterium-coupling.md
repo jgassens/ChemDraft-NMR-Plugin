@@ -10,8 +10,9 @@ The structure depiction labels mass-2 H atoms as D.
 Vicinal carbon-bound D partners use the existing H–H class constant multiplied by
 the single named `DEUTERIUM_PROTON_GYROMAGNETIC_RATIO` constant. Its adjacent code
 comment cites Harris et al., IUPAC Recommendations 2001, *Pure Appl. Chem.*
-73(11), 1795–1818, Table 1, doi:10.1351/pac200173111795. The owner supplied
-0.1535; checking that value against the paper remains pending. Aliphatic vicinal
+73(11), 1795–1818, doi:10.1351/pac200173111795. Table 1 gives γ(¹H) and Table 2
+gives γ(²H); their ratio is 0.153506, used to 4 figures as 0.1535. Verified
+against the paper on 2026-11-10. Aliphatic vicinal
 H–D is thus 1.0745 Hz. The same scaling uses the existing aromatic-ortho and
 aldehyde constants where those classes apply. The H–H reporting cutoff is
 unchanged; it does not suppress these smaller H–D estimates. There is no
@@ -157,8 +158,8 @@ current line 179), so it was left outside this coupling change. The initial
 non-strict ad-hoc invocation also lacked Node test typings and did not support the
 existing discriminated-union checks; it is not a configured repository check.
 
-Release review still needs the paper verification of the supplied gyromagnetic
-ratio and an assessment of the variable long-chain timing result. Geminal and
+Release review still needs an assessment of the variable long-chain timing
+result. Geminal and
 long-range H–D coupling, isotope-dependent shifts, and native spin-1 host
 metadata remain outside this implementation. Dependencies were
 reused through the instructed temporary `node_modules` symlink; no installation

@@ -126,8 +126,8 @@ tree.
   retain the existing unsupported-isotope behavior. Carbon-bound vicinal H–D
   couplings are **typical first-order estimates**, using
   the existing H–H class constant × γ(²H)/γ(¹H) = 0.1535 (Harris et al., IUPAC
-  Recommendations 2001, Table 1, doi:10.1351/pac200173111795; verification of the
-  ratio against the paper is pending). Equivalent D partners have spin 1:
+  Recommendations 2001, Table 1 (¹H) and Table 2 (²H), doi:10.1351/pac200173111795;
+  ratio verified against the paper on 2026-11-10). Equivalent D partners have spin 1:
   one/two/three D give triplet/quintet/septet intensities 1:1:1,
   1:2:3:2:1, and 1:3:6:7:6:3:1, nested with H–H splitting. Geminal H–D is
   omitted because the model has no geminal H–H constant. ¹³C predictions on

@@ -1,8 +1,10 @@
 import type { NmrCoupling } from "./contracts";
 
-// gamma(²H)/gamma(¹H): IUPAC Recommendations 2001, R. K. Harris et al.,
-// Pure Appl. Chem. 73(11), 1795–1818, Table 1, doi:10.1351/pac200173111795.
-// Release value supplied by the owner; verification against the paper is still pending.
+// gamma(²H)/gamma(¹H) from IUPAC Recommendations 2001: R. K. Harris et al.,
+// Pure Appl. Chem. 73(11), 1795–1818, doi:10.1351/pac200173111795.
+// Table 1: gamma(¹H) = 26.752 2128 × 10⁷ rad s⁻¹ T⁻¹; Table 2: gamma(²H) =
+// 4.106 627 91 × 10⁷ rad s⁻¹ T⁻¹, spin 1. Ratio 0.153506, used to 4 figures.
+// Verified against the paper on 2026-11-10.
 export const DEUTERIUM_PROTON_GYROMAGNETIC_RATIO = 0.1535;
 
 export interface FirstOrderLine {
