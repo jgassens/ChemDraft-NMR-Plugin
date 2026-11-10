@@ -25,8 +25,8 @@ In the ChemDraft desktop app:
    **Analyze → Predict ¹H NMR Shifts (experimental)**.
 
 Each release also includes a `.zip.sha256` sidecar for verifying the downloaded
-package. The plugin requires a ChemDraft host compatible with plugin API
-`^0.1.0`.
+package. The plugin requires ChemDraft 1.2 or later, with plugin API
+`^0.1.25`.
 
 ## Provenance
 

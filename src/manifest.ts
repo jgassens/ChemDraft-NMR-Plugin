@@ -16,7 +16,7 @@ export const nmrPredictorManifest: PluginManifest = {
   id: nmrPredictorPluginId,
   name: "NMR Shift Predictor",
   version: "0.3.0",
-  apiVersion: "^0.1.0",
+  apiVersion: "^0.1.25",
   license: "MIT",
   description:
     "¹H/¹³C NMR shift predictor: HOSE-fragment lookup over shift statistics derived from NMRShiftDB2 assignments (the database does not mark which are experimental) (nmrshiftdb2 Database License, ODbL-derived). Unmatched environments use labelled rule estimates when applicable, otherwise they are omitted with a warning. ¹H multiplicity and couplings are typical first-order estimates based on topology, not measured values; stick height is predicted equivalent nuclei, not experimental integration.",

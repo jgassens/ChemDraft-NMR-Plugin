@@ -10,6 +10,10 @@ import {
 } from "../manifest";
 
 describe("nmrPredictorManifest", () => {
+  it("requires the ChemDraft 1.2 host API", () => {
+    expect(nmrPredictorManifest.apiVersion).toBe("^0.1.25");
+  });
+
   it("is a valid plugin manifest", () => {
     expect(nmrPredictorManifest).not.toHaveProperty("dataLicenses");
     expect(validatePluginManifest(nmrPredictorManifest).ok).toBe(true);
