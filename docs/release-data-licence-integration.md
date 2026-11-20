@@ -1,31 +1,19 @@
-# Data licence integration
+# Data license integration
 
-Root `package.json` declares the bundled NMRShiftDB2-derived HOSE shift statistics
-under `dataLicenses`. The code licence remains MIT; the database is under the
-**nmrshiftdb2 Database License (ODbL-derived)**, with attribution and share-alike
-obligations documented in `src/providers/ocl/NMRSHIFTDB2_LICENSE.md`.
-
-```json
-"dataLicenses": [
-  {
-    "name": "NMRShiftDB2-derived HOSE shift statistics",
-    "path": "src/providers/ocl/nmrshiftdb2.database.json",
-    "license": "nmrshiftdb2 Database License (ODbL-derived)",
-    "noticeFile": "src/providers/ocl/NMRSHIFTDB2_LICENSE.md"
-  }
-]
-```
+Root `package.json` declares two bundled datasets under `dataLicenses`.
+The NMRShiftDB2-derived ¹H/¹³C shift statistics use the **nmrshiftdb2 Database
+License (ODbL-derived)**. The Ilm-NMR-P31-derived ³¹P shift statistics use
+**BSD-3-Clause**. The plugin code uses MIT.
+[NMRShiftDB2 notice](../src/providers/ocl/NMRSHIFTDB2_LICENSE.md) · [Ilm-NMR-P31 license](../src/providers/ocl/ILM_NMR_P31_LICENSE.md)
 
 The host's `tools/plugin-extract/gates.ts` reads `package.json` and validates
 `dataLicenses`: each dataset requires non-empty `name` and `license` fields,
-and each declared `noticeFile` must exist. The optional `path` above
-records which source artifact this declaration covers; the host does not validate
-that extra metadata. `findBundledDataPaths` in that host file detects common data
-directories and extensions. Its heuristic does not detect this JSON outside a
-data directory, so the explicit declaration is still necessary.
+and each declared `noticeFile` must exist. The optional `path` records the source
+artifact the declaration covers. The explicit declarations cover JSON artifacts
+outside the data directories detected by the host's `findBundledDataPaths` heuristic.
 
-`src/manifest.ts` uses the vendored SDK's `PluginManifest` unchanged. Data licence
-metadata belongs to package metadata, so no SDK or vendor update is needed.
+The vendored SDK's strict `PluginManifest` schema governs `src/manifest.ts`.
+The data license declarations live in the package metadata.
 
 ## Installable package
 
@@ -36,16 +24,16 @@ original relative path, root `package.json`, and `THIRD_PARTY_NOTICES.md` into t
 staged package. It recreates the ZIP and SHA-256 sidecar after those additions.
 Missing notices fail packaging and remove the ZIP and sidecar.
 
-The database itself is compiled into the predictor's JavaScript chunks; `path`
-identifies its source artifact rather than promising a separate JSON in the built
-ZIP. The declared notice path exists in both the source tree and built ZIP.
+Vite compiles both databases into the predictor's JavaScript chunks. Each `path`
+identifies the source JSON. Both notice files keep their source paths in the ZIP.
 
 ## Verification
 
 `src/tests/manifest.test.ts` validates and registers the runtime manifest with the
 vendored SDK/host. `src/tests/dataLicense.test.ts` verifies the package declaration,
-dataset path, notice contents, ZIP inclusion, updated checksum, and missing-notice
-failure. It also checks the actual release ZIP when available.
+dataset paths, notice contents, ZIP inclusion, updated checksum, and missing-notice
+failure. The package integration test runs both the ¹³C and ³¹P commands against
+the built predictor, so it verifies the bundled tables can be used from the ZIP.
 
 Release artifact tests require a clean committed checkout and a current package:
 

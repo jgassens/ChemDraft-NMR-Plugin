@@ -11,7 +11,7 @@ import { NmrError, NmrErrorCodes } from "../domain/errors";
 import { FixtureHosePredictor } from "../providers/fixture/FixtureHosePredictor";
 import { predictSelectedStructure } from "../application/predictSelectedStructure";
 import { createNmrCommandHandlers } from "../register";
-import { nmrPredictCarbonCommandId, nmrPredictProtonCommandId } from "../manifest";
+import { nmrPredictCarbonCommandId, nmrPredictPhosphorusCommandId, nmrPredictProtonCommandId } from "../manifest";
 
 function molecule(overrides: Partial<PluginSelectedMolecule> = {}): PluginSelectedMolecule {
   return {
@@ -96,6 +96,10 @@ describe("predictSelectedStructure", () => {
     const proton = makeContext([molecule()]);
     await predictSelectedStructure(proton.context, services, { nuclei: ["1H"], ignoreLabileHydrogens: true });
     expect(proton.reports.at(-1)?.report.rerunCommandId).toBe(nmrPredictProtonCommandId);
+
+    const phosphorus = makeContext([molecule()]);
+    await predictSelectedStructure(phosphorus.context, services, { nuclei: ["31P"] });
+    expect(phosphorus.reports.at(-1)?.report.rerunCommandId).toBe(nmrPredictPhosphorusCommandId);
   });
 
   it("rejects an unknown structure format and shows an error panel", async () => {
@@ -192,7 +196,7 @@ describe("predictSelectedStructure", () => {
     expect(reports.at(-1)?.report.sections.some((section) => section.kind === "text" && "title" in section && section.title === "Prediction failed")).toBe(true);
   });
 
-  it("wires ¹³C and ¹H as separate command handlers (ADR-0011)", async () => {
+  it("wires ¹³C, ¹H, and ³¹P as separate command handlers (ADR-0011)", async () => {
     const seen: NmrPredictionRequest[] = [];
     const spy: NmrPredictor = {
       getCapabilities: () => services.predictor.getCapabilities(),
@@ -204,6 +208,7 @@ describe("predictSelectedStructure", () => {
     const handlers = createNmrCommandHandlers({ predictor: spy });
     await handlers[nmrPredictCarbonCommandId](makeContext([molecule()]).context);
     await handlers[nmrPredictProtonCommandId](makeContext([molecule()]).context);
-    expect(seen.map((request) => request.nuclei)).toEqual([["13C"], ["1H"]]);
+    await handlers[nmrPredictPhosphorusCommandId](makeContext([molecule()]).context);
+    expect(seen.map((request) => request.nuclei)).toEqual([["13C"], ["1H"], ["31P"]]);
   });
 });

@@ -31,6 +31,7 @@ import {
   type ProductionLookupContext
 } from "./productionLookup";
 import { buildStructureDepiction } from "./structureDepiction";
+import bundledPhosphorusDatabase from "./ilm-nmr-p31.database.json";
 import bundledDatabase from "./nmrshiftdb2.database.json";
 
 const SMALL_POPULATION_THRESHOLD = 3;
@@ -38,8 +39,8 @@ const LABILE_HYDROGEN_HOSTS = new Set([7, 8, 16]);
 
 export interface OclHosePredictorOptions {
   database?: CompiledNmrDatabase;
-  /** An explicitly loaded local ³¹P table, independent of the ¹H/¹³C table. */
-  phosphorusDatabase?: CompiledNmrDatabase;
+  /** Overrides the bundled ³¹P table. Pass null to run without a ³¹P table. */
+  phosphorusDatabase?: CompiledNmrDatabase | null;
   now?: () => string;
 }
 
@@ -51,20 +52,20 @@ interface PredictionCounts {
 type Statistic = NmrPredictionOptions["statistic"];
 
 /**
- * Predictor based on NMRShiftDB2 assignments (the database does not mark which are experimental):
- * derive local OCL environments, search the bundled HOSE database
- * deepest-first, and disclose thin matches. A rule estimate is emitted only when its estimator says
- * the chemistry is applicable; otherwise the unsupported unmatched environment is omitted with a
- * stable warning. All output remains serializable worker/store data.
+ * Derive local OCL environments, search the bundled HOSE tables deepest-first, and disclose thin
+ * matches. For ¹H and ¹³C, unmatched environments can use applicable rule estimates. A stable
+ * warning identifies omitted environments. All output remains serializable worker/store data.
  */
 export class OclHosePredictor implements NmrPredictor {
   private readonly database: CompiledNmrDatabase;
-  private readonly phosphorusDatabase?: CompiledNmrDatabase;
+  private readonly phosphorusDatabase: CompiledNmrDatabase | null;
   private readonly now: () => string;
 
   constructor(options: OclHosePredictorOptions = {}) {
     this.database = options.database ?? (bundledDatabase as unknown as CompiledNmrDatabase);
-    this.phosphorusDatabase = options.phosphorusDatabase;
+    this.phosphorusDatabase = options.phosphorusDatabase === undefined
+      ? (bundledPhosphorusDatabase as unknown as CompiledNmrDatabase)
+      : options.phosphorusDatabase;
     this.now = options.now ?? (() => new Date().toISOString());
   }
 

@@ -13,6 +13,8 @@ import { describePackageArtifact } from "./packageArtifact";
 const pluginRoot = fileURLToPath(new URL("../../", import.meta.url));
 const datasetPath = "src/providers/ocl/nmrshiftdb2.database.json";
 const noticeFile = "src/providers/ocl/NMRSHIFTDB2_LICENSE.md";
+const phosphorusDatasetPath = "src/providers/ocl/ilm-nmr-p31.database.json";
+const phosphorusNoticeFile = "src/providers/ocl/ILM_NMR_P31_LICENSE.md";
 const roots: string[] = [];
 
 afterEach(() => {
@@ -31,13 +33,13 @@ function temporaryPackage() {
 function expectPackagedNotices(zipPath: string): void {
   const unpack = (file: string) => execFileSync("unzip", ["-p", zipPath, file], { encoding: "utf8" });
   expect(JSON.parse(unpack("package.json")).dataLicenses).toEqual(packageJson.dataLicenses);
-  for (const file of [noticeFile, "THIRD_PARTY_NOTICES.md"]) {
+  for (const file of [noticeFile, phosphorusNoticeFile, "THIRD_PARTY_NOTICES.md"]) {
     expect(unpack(file)).toBe(readFileSync(join(pluginRoot, file), "utf8"));
   }
 }
 
-describe("bundled database licence", () => {
-  it("declares the NMRShiftDB2 dataset in package metadata separately from MIT code", () => {
+describe("bundled database licenses", () => {
+  it("declares both datasets in package metadata separately from MIT code", () => {
     expect(packageJson.license).toBe("MIT");
     expect(packageJson.dataLicenses).toEqual([
       {
@@ -45,13 +47,29 @@ describe("bundled database licence", () => {
         path: datasetPath,
         license: "nmrshiftdb2 Database License (ODbL-derived)",
         noticeFile
+      },
+      {
+        name: "Ilm-NMR-P31-derived ³¹P HOSE shift statistics",
+        citation: "Ilm-NMR-P31, Hack et al. (2023), doi:10.1186/s13321-023-00792-y",
+        repository: "https://github.com/clacor/Ilm-NMR-P31",
+        commit: "ead6f914d2bdfb60e4befea72ea503d32978d358",
+        path: phosphorusDatasetPath,
+        license: "BSD-3-Clause",
+        copyright: "(c) 2026 Robert Geitner",
+        noticeFile: phosphorusNoticeFile,
+        note: "redistributed with the author's permission (owner, 2026-11-20)"
       }
     ]);
-    expect(existsSync(join(pluginRoot, datasetPath))).toBe(true);
+    for (const { path } of packageJson.dataLicenses) {
+      expect(existsSync(join(pluginRoot, path))).toBe(true);
+    }
     const notice = readFileSync(join(pluginRoot, noticeFile), "utf8");
     expect(notice).toContain("nmrshiftdb2 contributors");
     expect(notice).toContain("Share-alike");
     expect(notice).toContain("nmrshiftdb2datalicense.txt");
+    const phosphorusNotice = readFileSync(join(pluginRoot, phosphorusNoticeFile), "utf8");
+    expect(phosphorusNotice).toContain("BSD 3-Clause License");
+    expect(phosphorusNotice).toContain("Copyright (c) 2026, Robert Geitner");
   });
 
   it("ships declared notices and package metadata in the zip with an updated checksum", () => {
@@ -79,7 +97,7 @@ describe("bundled database licence", () => {
   });
 });
 
-describePackageArtifact("packaged database licence notices", (artifact) => {
+describePackageArtifact("packaged database license notices", (artifact) => {
   it("includes the package declaration and its promised attribution files", () => {
     expectPackagedNotices(artifact.zipPath);
   });

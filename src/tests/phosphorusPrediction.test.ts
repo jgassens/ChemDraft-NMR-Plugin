@@ -22,7 +22,7 @@ import { prepareProductionLookup, productionEnvironmentCodes } from "../provider
 import { composePredictionReport } from "../report/composePredictionReport";
 import baselines from "./fixtures/noDeuteriumOutput.json";
 
-// Hand-written synthetic structures and shifts. No corpus entries are used in this file.
+// Hand-written synthetic fixtures for compiler and lookup behavior.
 const twoPhosphorus = `synthetic two phosphorus environments
   synthetic        2D
 
@@ -87,6 +87,27 @@ function request(value: string, nuclei: readonly NmrNucleus[] = ["31P"]): NmrPre
 }
 
 describe("31P HOSE prediction", () => {
+  it("predicts from the bundled phosphorus table and displays its measured accuracy", async () => {
+    const predictor = new OclHosePredictor();
+    expect(predictor.getCapabilities().nuclei).toContain("31P");
+    const smiles = "CCP(CC)CC";
+    const result = NmrPredictionResultSchema.parse(await predictor.predict(request(smiles)));
+    expect(result.resonances).toMatchObject([{
+      nucleus: "31P",
+      source: "lookup",
+      evidence: { method: "hose-fragment" }
+    }]);
+    expect(result.resonances[0].evidence?.sampleCount).toBeGreaterThanOrEqual(5);
+    expect(result.backend.dataChecksum).toBe(PHOSPHORUS_MEASURED_ACCURACY.corpusSha256);
+
+    const report = composePredictionReport({
+      objectId: "m1", structure: smiles, structureFormat: "smiles", sourceFingerprint: "triethylphosphine"
+    }, result);
+    const serialized = JSON.stringify(report);
+    expect(serialized).toContain("Measured accuracy (³¹P)");
+    expect(serialized).toContain(PHOSPHORUS_MEASURED_ACCURACY.partition);
+  });
+
   it("compiles distinct P environments and counts equivalent P atoms once per assignment", () => {
     const db = database(bothAssigned + equivalentAssigned);
     expect(db.provenance.nuclei).toEqual(["31P"]);
@@ -207,7 +228,7 @@ describe("31P HOSE prediction", () => {
   });
 
   it("declines with a specific warning when the table is absent", async () => {
-    const predictor = new OclHosePredictor();
+    const predictor = new OclHosePredictor({ phosphorusDatabase: null });
     const result = await predictor.predict(request("CP"));
     expect(predictor.getCapabilities().nuclei).not.toContain("31P");
     expect(result.resonances).toEqual([]);
@@ -230,9 +251,9 @@ describe("31P HOSE prediction", () => {
     }
   });
 
-  it("preserves the serialized 1H/13C result from the existing ethanol baseline with a P table supplied", async () => {
+  it("preserves the serialized 1H/13C result from the existing ethanol baseline with the bundled P table", async () => {
     const baseline = baselines[0];
-    const predictor = new OclHosePredictor({ phosphorusDatabase: database(bothAssigned), now: () => "t" });
+    const predictor = new OclHosePredictor({ now: () => "t" });
     const result = await predictor.predict({
       structure: baseline.structure as ChemicalStructureInput, nuclei: ["1H", "13C"], options, sourceFingerprint: "regression"
     });

@@ -1,10 +1,9 @@
 # @chemdraft/plugin-nmr-predictor
 
-Standalone, self-contained repository for ChemDraft's first-party **NMR shift
-predictor** plugin. Select a structure, run **Analyze → Predict ¹³C NMR Shifts**
-(or the experimental ¹H command), and see a stick-spectrum + shift table in a
-declarative panel. Predictions are written to the host's generic analysis store
-and flagged stale when the structure changes.
+Standalone repository for ChemDraft's first-party **NMR shift predictor** plugin.
+Select a structure and use the **Analyze** menu to see a predicted ¹³C, ¹H
+(experimental), or ³¹P stick spectrum and shift table. The host stores predictions
+and flags them as stale when the structure changes.
 
 This repo builds the **installable plugin package** — the `nmr-predictor-<version>.zip`
 a ChemDraft host downloads and installs (ADR-0029/M35). It compiles only against
@@ -21,8 +20,8 @@ In the ChemDraft desktop app:
 1. Choose **Plugins → Add or Remove Plugins…**.
 2. Select **Add plugin from package…** and choose the downloaded ZIP.
 3. Review the plugin identity and declared permissions, then select **Install**.
-4. Select a structure and run **Analyze → Predict ¹³C NMR Shifts** or
-   **Analyze → Predict ¹H NMR Shifts (experimental)**.
+4. Select a structure and use the **Analyze** menu to predict ¹³C, ¹H
+   (experimental), or ³¹P shifts.
 
 Each release also includes a `.zip.sha256` sidecar for verifying the downloaded
 package. The plugin requires ChemDraft 1.2 or later, with plugin API
@@ -75,7 +74,8 @@ This runs the packaging tool in `tools/plugin-package/package.ts`, which:
    `base: "./"`) so the package is relocatable and its nested OpenChemLib worker
    resolves against its own co-located files;
 3. writes `manifest.json` (identity, permissions, contributions, built `entry.js`
-   filename, and provenance) and copies `LICENSE`;
+   filename, and provenance) and stages `LICENSE`, package metadata, and the
+   declared data notices;
 4. emits `dist/plugin-packages/nmr-predictor-<version>.zip` and a
    `.zip.sha256` sidecar (integrity only — never a trust gate, ADR-0029 §4).
 
@@ -162,12 +162,43 @@ all shifts have database matches. Other isotope labels retain the existing refus
 See [deuterated environment matching](docs/deuterated-environments.md) for examples
 and the warning range.
 
+## ³¹P prediction
+
+Select a phosphorus-containing structure and choose **Analyze → Predict ³¹P NMR
+Shifts**. The default predictor searches the bundled Ilm-NMR-P31 HOSE table from
+sphere 4 down to sphere 1 and uses the median shift by default. The table contains
+aggregated statistics built from the full pinned corpus and keeps environments
+with at least five observations.
+
+In the benchmark partition **held-out source references, 10%, molecule-deduplicated**,
+the lookup matched 5,278 of 5,577 phosphorus observations (94.6%). The matched predictions had an
+MAE of 7.565 ppm, an RMSE of 20.002 ppm, and a median absolute error of 2.23 ppm.
+The benchmark used a training-only table that retained all observed environments.
+The panel displays those benchmark measurements when the table's corpus checksum
+matches. [Benchmark protocol and results](docs/p31-benchmark.md)
+
+Confidence tiers describe match depth and reference population. With the bundled
+table, high means sphere 3 or 4 with at least eight observations, low means a
+sphere 1 match, and medium covers the other matches. In the held-out benchmark,
+median absolute errors were 0.93, 1.58, and 4.20 ppm for high, medium, and low tiers,
+respectively. These values summarize match groups. Individual shifts can have much
+larger errors.
+
+Unmatched phosphorus sites are omitted with a warning. If the predictor is run
+without a ³¹P table, it declines with `NMR_PHOSPHORUS_DATABASE_NOT_INSTALLED`.
+The report flags sphere 1 matches and warns when a merged resonance contains
+phosphorus atoms that may give separate stereochemical signals. The model
+reports chemical shifts and leaves solvent effects and ³¹P splitting unmodeled.
+
 ## ⚠️ Data provenance
 
 - The OCL provider's `src/providers/ocl/nmrshiftdb2.database.json` is a
   **derivative database** of aggregated shift statistics (no structures) under the
   **nmrshiftdb2 Database License** (ODbL-derived; commercial use OK, share-alike,
   attribution) — see `src/providers/ocl/NMRSHIFTDB2_LICENSE.md`.
+- The ³¹P table is derived from Ilm-NMR-P31 (Hack et al., 2023), under
+  **BSD-3-Clause**, copyright (c) 2026 Robert Geitner. Redistributed with the
+  author's permission (owner, 2026-11-20). [Dataset paper](https://doi.org/10.1186/s13321-023-00792-y) · [License text](src/providers/ocl/ILM_NMR_P31_LICENSE.md)
 - The fixture provider's values are **synthetic**, labeled as such everywhere.
 - Coverage is intentionally narrow. Applicable coarse estimates are marked partial
   and include per-resonance `source: "rule-estimate"`, estimator ID, version, and
@@ -178,12 +209,11 @@ and the warning range.
   unsupported environment is omitted with a stable warning instead of receiving a
   fabricated generic value.
 
-The original plugin code is **MIT-licensed** (`LICENSE`); the bundled database is
-under the separate **nmrshiftdb2 Database License (ODbL-derived)**, declared per
-dataset in root `package.json` as `dataLicenses`, with the source dataset path and
-notice file. `npm run package` includes that metadata, the declared notice, and
-`THIRD_PARTY_NOTICES.md` in the installable ZIP. The MIT grant does not cover the
-database. See `docs/release-data-licence-integration.md` for packaging details.
+The original plugin code is **MIT-licensed** (`LICENSE`). The root `package.json`
+declares each dataset's separate license, source artifact path, and notice file
+under `dataLicenses`. `npm run package` includes that metadata, the declared notices,
+and `THIRD_PARTY_NOTICES.md` in the installable ZIP.
+[Data license packaging](docs/release-data-licence-integration.md)
 
 See `THIRD_PARTY_NOTICES.md` for the full third-party attribution.
 
@@ -191,20 +221,20 @@ See `THIRD_PARTY_NOTICES.md` for the full third-party attribution.
 
 ```
 src/
-├── manifest.ts        contributions (¹³C default + ¹H experimental commands, menu, panel, analyzer)
+├── manifest.ts        contributions (¹³C, ¹H experimental, and ³¹P commands, menu, panel, analyzer)
 ├── register.ts        command handlers + onPanelClosed lifecycle
 ├── workerEntry.ts     the worker entry the release bundles into entry.js
 ├── domain/            serializable contracts, errors, warnings, schemas
 ├── application/       normalization, selection mapping, status, the command
-├── providers/         fixture/ (synthetic) and ocl/ (NMRShiftDB2, default)
+├── providers/         fixture/ (synthetic) and ocl/ (NMRShiftDB2 and Ilm-NMR-P31, default)
 ├── worker/            protocol, core handler, entry, client
 └── report/            declarative panel composition + stick-spectrum SVG
-scripts/build-database.ts   compile a NMReDATA/SDF export → the bundled database
+scripts/build-database.ts   compile NMReDATA/SDF exports into bundled databases
 tools/                      vendored packaging tool (plugin-package + boundary/gate checks)
 vendor/                     vendored SDK tarballs (ADR-0031)
 ```
 
-Rebuild the reference database (the `n >= 5` bundle-size prune is the default; the
+Rebuild the ¹H/¹³C reference database (the `n >= 5` bundle-size prune is the default; the
 raw input's SHA-256 is embedded in the artifact's provenance for reproducibility):
 
 ```bash

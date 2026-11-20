@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   nmrPredictCarbonCommandId,
+  nmrPredictPhosphorusCommandId,
   nmrPredictProtonCommandId,
   nmrPredictorManifest,
   nmrPredictorPanelId
@@ -21,9 +22,10 @@ describe("nmrPredictorManifest", () => {
     expect(parsed.id).toBe("org.chemdraft.nmr.predictor");
     expect(parsed.contributes.commands.map((command) => command.id)).toEqual([
       nmrPredictCarbonCommandId,
-      nmrPredictProtonCommandId
+      nmrPredictProtonCommandId,
+      nmrPredictPhosphorusCommandId
     ]);
-    expect(parsed.contributes.menus).toHaveLength(2);
+    expect(parsed.contributes.menus).toHaveLength(3);
     expect(parsed.contributes.analyzers).toHaveLength(1);
     expect(parsed.contributes.panels[0]?.id).toBe(nmrPredictorPanelId);
   });
@@ -36,14 +38,16 @@ describe("nmrPredictorManifest", () => {
       host.registerPlugin(nmrPredictorManifest, {
         commandHandlers: {
           [nmrPredictCarbonCommandId]: async () => undefined,
-          [nmrPredictProtonCommandId]: async () => undefined
+          [nmrPredictProtonCommandId]: async () => undefined,
+          [nmrPredictPhosphorusCommandId]: async () => undefined
         }
       })
     ).not.toThrow();
 
     expect(host.listMenuContributions("analyze").map((entry) => entry.contribution.commandId)).toEqual([
       nmrPredictCarbonCommandId,
-      nmrPredictProtonCommandId
+      nmrPredictProtonCommandId,
+      nmrPredictPhosphorusCommandId
     ]);
   });
 });

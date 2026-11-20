@@ -6,9 +6,10 @@ export const ILM_P31_PROVENANCE = {
   name: "Ilm-NMR-P31 (GitHub clacor/Ilm-NMR-P31 @ ead6f91)",
   version: "ead6f914d2bdfb60e4befea72ea503d32978d358",
   source: "https://github.com/clacor/Ilm-NMR-P31/tree/ead6f914d2bdfb60e4befea72ea503d32978d358",
-  license: "Pending owner decision",
-  attribution: "Ilm-NMR-P31, Robert Geitner and contributors.",
-  note: "Local ³¹P environment-code shift statistics from Ilm-NMR-P31 assignments."
+  license: "BSD-3-Clause",
+  licenseUrl: "https://github.com/clacor/Ilm-NMR-P31/blob/ead6f914d2bdfb60e4befea72ea503d32978d358/LICENSE",
+  attribution: "Ilm-NMR-P31, Hack et al. (2023), doi:10.1186/s13321-023-00792-y. Copyright (c) 2026 Robert Geitner. Redistributed with the author's permission (owner, 2026-11-20).",
+  note: "Aggregated ³¹P HOSE environment shift statistics from all Ilm-NMR-P31 SDF entries."
 };
 
 /** Hash the file bytes in filename byte order, inserting only missing terminators or linefeeds.

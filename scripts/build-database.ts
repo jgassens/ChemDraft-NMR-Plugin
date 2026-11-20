@@ -9,7 +9,7 @@
  *
  * Reproducibility (report 0024): the SHA-256 and byte length of the exact input file are embedded in
  * the artifact's provenance alongside the prune rule, so `same input + same flags → same artifact`
- * is verifiable. The bundled ¹H/¹³C build defaults to n >= 5. The local ³¹P build keeps all observations.
+ * is verifiable. Both bundled builds default to n >= 5.
  */
 import { createHash } from "node:crypto";
 import { readFileSync, statSync, writeFileSync } from "node:fs";
@@ -27,7 +27,8 @@ if (flagIndex >= 0) {
   args.splice(flagIndex, 2);
 }
 const [input, output] = args;
-if (!input || !output || (minObservations !== undefined && (!Number.isInteger(minObservations) || minObservations < 1))) {
+minObservations ??= DEFAULT_MIN_OBSERVATIONS;
+if (!input || !output || !Number.isInteger(minObservations) || minObservations < 1) {
   console.error("usage: build-database <input.sd|31P-SDF-directory> <output.json> [--min-observations N>=1]");
   process.exit(1);
 }
@@ -36,13 +37,12 @@ if (statSync(input).isDirectory()) {
   const { entries, inputSha256, inputBytes } = readSdfDirectory(input);
   const database = buildNmrDatabaseFromRecords(entries.map(({ raw }) => raw), {
     nuclei: ["31P"],
-    minObservations: minObservations ?? 1,
+    minObservations,
     provenance: { ...ILM_P31_PROVENANCE, inputSha256, inputBytes }
   });
   writeFileSync(output, `${JSON.stringify(database)}\n`);
   console.log(JSON.stringify(database.provenance));
 } else {
-  minObservations ??= DEFAULT_MIN_OBSERVATIONS;
   const rawBytes = readFileSync(input);
   const inputSha256 = createHash("sha256").update(rawBytes).digest("hex");
 

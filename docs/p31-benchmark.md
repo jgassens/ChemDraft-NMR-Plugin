@@ -4,7 +4,7 @@
 
 Group each Ilm-NMR-P31 SDF entry by its CSV `ref` string, lowercased with each run of whitespace collapsed to one space and leading and trailing whitespace removed. For `NA` or empty references, use `stem:` followed by the SDF file stem with its trailing `-CMP<n>` removed. Hash the UTF-8 key with SHA-256, interpret the first four bytes as an unsigned big-endian integer, and take its remainder modulo 1000. Hold out entries with buckets below 100 and assign the others to training.
 
-Compute a stereo-free OpenChemLib idcode for every entry. Drop every training entry whose idcode also occurs in the test set. Keep the held-out entries as assigned by reference. Compile the benchmark table from the remaining training entries and the local production table from all entries.
+Compute a stereo-free OpenChemLib idcode for every entry. Drop every training entry whose idcode also occurs in the test set. Keep the held-out entries as assigned by reference. Compile the benchmark table from the remaining training entries. The bundled production table uses all entries and retains environments with at least five observations, the same cutoff as the bundled ¹H/¹³C table.
 
 Use median lookup from the deepest available match (spheres 4 through 1), retaining all observed training environments. Compute errors over matched assignments. Use a percentile bootstrap with 1000 resamples and seed 1. Draw as many source groups as are in the held-out partition, with replacement, and carry all matched errors in each drawn group into the replicate. Report the 2.5th and 97.5th percentiles.
 
@@ -40,20 +40,22 @@ mkdir -p local-data
 node --import tsx scripts/run-benchmark.ts "$ILM_P31/SDFs" \
   --metadata "$ILM_P31/Ilm-NMR-P31.csv" \
   --json local-data/ilm-nmr-p31.benchmark.json
+```
+
+To rebuild the bundled production table from all SDF entries, run:
+
+```sh
 node --import tsx scripts/build-database.ts "$ILM_P31/SDFs" \
-  local-data/ilm-nmr-p31.database.json
+  src/providers/ocl/ilm-nmr-p31.database.json --min-observations 5
 ```
 
 The scripts hash the exact bytes in byte-sorted filename order and insert a `$$$$` terminator or linefeed where one is missing. The pinned files are already terminated. Parsing realigns over-width V2000 atom fields in memory. On OpenChemLib stereo perception failure for a V2000 record with no property records, parsing retries without stereo coordinates and preserves the atom and bond records. The hash covers the original bytes.
 
-Rebuild any local ³¹P table generated before the review fixes to pick up the revised environment codes. For local predictions, read the generated JSON and pass the compiled table as `new OclHosePredictor({ phosphorusDatabase })`. Request `nuclei: ["31P"]`. The worker handler also accepts a `createPredictor` factory that can supply the table. The table lives in gitignored `local-data/` and stays outside the installable package.
+## Data license
 
-## Data license (pending owner decision)
-
-**DRAFT `dataLicenses` entry for owner review**
-
-- **Name and path** Ilm-NMR-P31-derived ³¹P HOSE shift statistics, `local-data/ilm-nmr-p31.database.json`.
-- **License status** Pending owner decision. The pinned GitHub repository carries a BSD-3-Clause notice, copyright (c) 2026 Robert Geitner. [Pinned GitHub license](https://github.com/clacor/Ilm-NMR-P31/blob/ead6f914d2bdfb60e4befea72ea503d32978d358/LICENSE)
+- **Name and path** Ilm-NMR-P31-derived ³¹P HOSE shift statistics, `src/providers/ocl/ilm-nmr-p31.database.json`. The table contains aggregated statistics only. [Hack et al. (2023)](https://doi.org/10.1186/s13321-023-00792-y)
+- **Source** `clacor/Ilm-NMR-P31` at commit `ead6f914d2bdfb60e4befea72ea503d32978d358`. [Pinned GitHub source](https://github.com/clacor/Ilm-NMR-P31/tree/ead6f914d2bdfb60e4befea72ea503d32978d358)
+- **License** BSD-3-Clause, copyright (c) 2026 Robert Geitner. Redistributed with the author's permission (owner, 2026-11-20). The final declaration is under `dataLicenses` in `package.json`. [Bundled license text](../src/providers/ocl/ILM_NMR_P31_LICENSE.md)
 - **Published archive** Zenodo `10.5281/zenodo.8260783` is the 2023 release of 14,250 entries under CC BY 4.0. [Versioned Zenodo record](https://doi.org/10.5281/zenodo.8260783)
 - **Paper's data availability** Hack et al. make the underlying Ilm-NMR-P31 dataset publicly available. The publication's companion repository points readers to Zenodo for the archived data. [Hack et al. (2023)](https://doi.org/10.1186/s13321-023-00792-y) · [Publication repository](https://github.com/jcheminform/Ilm-NMR-P31)
 - **Source handbooks** The paper describes shifts transcribed from *Landolt-Boernstein* (2014) and *Handbook of ³¹P NMR Data* (1991). [Hack et al. (2023)](https://doi.org/10.1186/s13321-023-00792-y)

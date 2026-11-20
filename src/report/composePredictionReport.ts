@@ -169,7 +169,7 @@ function resultMethodSummary(result: NmrPredictionResult): ResultMethodSummary {
 
 function resultDisclaimer(result: NmrPredictionResult, methods: ResultMethodSummary): string {
   if (result.resonances.some((resonance) => resonance.nucleus === "31P")) {
-    const note = "³¹P shifts use statistics from the supplied phosphorus table. Confidence reflects the matched sphere and reference population.";
+    const note = "³¹P shifts use HOSE reference statistics. Confidence reflects the matched sphere and reference population.";
     if (result.resonances.every((resonance) => resonance.nucleus === "31P")) return note;
     return `${methods.hasRules ? MIXED_METHOD_NOTE : EXPERIMENTAL_NOTE} ${note}`;
   }

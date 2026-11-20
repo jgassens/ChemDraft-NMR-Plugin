@@ -24,13 +24,17 @@ Two providers ship, with separately-tracked data:
   Provenance, license, and attribution: `src/providers/ocl/NMRSHIFTDB2_LICENSE.md`.
   It contains aggregated statistics only, no structures. Rebuild via
   `scripts/build-database.ts`.
+- **Ilm-NMR-P31-derived ³¹P HOSE shift statistics** (`src/providers/ocl/ilm-nmr-p31.database.json`)
+  — aggregated statistics from Ilm-NMR-P31, Hack et al. (2023),
+  DOI 10.1186/s13321-023-00792-y. **BSD-3-Clause**, copyright (c) 2026 Robert Geitner.
+  Redistributed with the author's permission (owner, 2026-11-20).
+  [Dataset paper](https://doi.org/10.1186/s13321-023-00792-y) · [clacor/Ilm-NMR-P31 at ead6f914d2bdfb60e4befea72ea503d32978d358](https://github.com/clacor/Ilm-NMR-P31/tree/ead6f914d2bdfb60e4befea72ea503d32978d358) · [License text](src/providers/ocl/ILM_NMR_P31_LICENSE.md)
 
-The plugin's original **code is MIT-licensed**, as recorded in `LICENSE`. The compiled
-database is a **separate data asset** under the nmrshiftdb2 Database License
-(ODbL-derived), declared in root `package.json` under `dataLicenses` and surfaced at
-runtime in the panel's "Reference database" section. The MIT code grant does not
-relicense the database or third-party dependencies. The installable package includes
-that package metadata, this notice, and the declared database notice file.
+The plugin's original **code is MIT-licensed**, as recorded in `LICENSE`. The root
+`package.json` declares the compiled data assets and their separate licenses under
+`dataLicenses`. The panel's "Reference database" section shows the license for each
+database used. The installable package includes that package metadata, this notice,
+and both database license files.
 
 ## Rule-parameter sources
 

@@ -82,6 +82,7 @@ export {
   nmrPredictorPluginId,
   nmrPredictCarbonCommandId,
   nmrPredictProtonCommandId,
+  nmrPredictPhosphorusCommandId,
   nmrPredictorPanelId,
   nmrPredictorAnalyzerId,
   nmrForwardPredictionAnalysisType

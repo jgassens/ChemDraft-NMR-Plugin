@@ -6,6 +6,7 @@ export const nmrPredictorPluginId = "org.chemdraft.nmr.predictor";
  *  commands, not an argument channel). Handlers are wired in M8. */
 export const nmrPredictCarbonCommandId = "plugin.nmrPredictor.predictSelectedStructure";
 export const nmrPredictProtonCommandId = "plugin.nmrPredictor.predictWithProtonExperimental";
+export const nmrPredictPhosphorusCommandId = "plugin.nmrPredictor.predictPhosphorus";
 export const nmrPredictorPanelId = "panel.nmrPredictor.review";
 export const nmrPredictorAnalyzerId = "plugin.nmrPredictor.forwardPrediction";
 
@@ -19,7 +20,7 @@ export const nmrPredictorManifest: PluginManifest = {
   apiVersion: "^0.1.25",
   license: "MIT",
   description:
-    "¹H/¹³C NMR shift predictor: HOSE-fragment lookup over shift statistics derived from NMRShiftDB2 assignments (the database does not mark which are experimental) (nmrshiftdb2 Database License, ODbL-derived). Unmatched environments use labelled rule estimates when applicable, otherwise they are omitted with a warning. ¹H multiplicity and couplings are typical first-order estimates based on topology, not measured values; stick height is predicted equivalent nuclei, not experimental integration.",
+    "HOSE-fragment NMR shift prediction using NMRShiftDB2 assignments for ¹H/¹³C and Ilm-NMR-P31 assignments for ³¹P. NMRShiftDB2 does not identify which assignments are experimental. Applicable ¹H/¹³C rule estimates are labeled. Omitted environments carry a warning. ¹H multiplicity and couplings are first-order topology-based estimates. Stick height represents the predicted number of equivalent nuclei.",
   entry: "dist/plugin.js",
   permissions: ["selection.read", "analysis.write", "ui.menu", "ui.panel"],
   contributes: {
@@ -40,6 +41,14 @@ export const nmrPredictorManifest: PluginManifest = {
         description: "Experimental ¹H prediction; labile protons are omitted by default.",
         requiredPermissions: ["selection.read", "analysis.write"],
         enabled: true
+      },
+      {
+        id: nmrPredictPhosphorusCommandId,
+        title: "Predict ³¹P NMR Shifts",
+        category: "Analyze",
+        description: "Predict ³¹P shifts for the selected structure by HOSE-fragment lookup over Ilm-NMR-P31-derived statistics.",
+        requiredPermissions: ["selection.read", "analysis.write"],
+        enabled: true
       }
     ],
     menus: [
@@ -54,6 +63,13 @@ export const nmrPredictorManifest: PluginManifest = {
         id: "menu.nmrPredictor.predictProton",
         title: "Predict ¹H NMR Shifts (experimental)",
         commandId: nmrPredictProtonCommandId,
+        location: "analyze",
+        requiredPermissions: ["ui.menu"]
+      },
+      {
+        id: "menu.nmrPredictor.predictPhosphorus",
+        title: "Predict ³¹P NMR Shifts",
+        commandId: nmrPredictPhosphorusCommandId,
         location: "analyze",
         requiredPermissions: ["ui.menu"]
       }

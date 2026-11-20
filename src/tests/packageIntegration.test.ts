@@ -3,7 +3,9 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, it } from "vitest";
 
-import { nmrPredictCarbonCommandId } from "../manifest";
+import type { NmrPredictionResult } from "../domain/contracts";
+import { nmrPredictCarbonCommandId, nmrPredictPhosphorusCommandId } from "../manifest";
+import { PHOSPHORUS_MEASURED_ACCURACY } from "../providers/ocl/measuredAccuracy";
 import { describePackageArtifact, extractPackageArtifact } from "./packageArtifact";
 
 interface WorkerMessage {
@@ -12,9 +14,11 @@ interface WorkerMessage {
 }
 
 describePackageArtifact("packaged plugin entry, loaded and run for real", (artifact) => {
-  it("predicts toluene's 5 distinct resonances (13C) through the built package", async () => {
-    // Loads a real 6MB predictor chunk and 1.3MB reference-data JSON from disk, then runs an actual
-    // HOSE-fragment prediction, comfortably past vitest's 5s default under any normal machine load.
+  it.each([
+    { nucleus: "13C", commandId: nmrPredictCarbonCommandId, smiles: "Cc1ccccc1", count: 5 },
+    { nucleus: "31P", commandId: nmrPredictPhosphorusCommandId, smiles: "CCP(CC)CC", count: 1 }
+  ])("predicts $nucleus shifts through the built package", async ({ nucleus, commandId, smiles, count }) => {
+    // Execute both commands to verify each reference table survives bundling and ZIP extraction.
     // In Node, `typeof Worker === "undefined"`, so entry.js's own fallback path runs: the in-thread OCL
     // predictor, lazily imported as its own chunk — the same runtime code a host without nested-worker
     // support would take. This shim plays the *host* side of runPluginWorker's postMessage protocol: no
@@ -51,7 +55,7 @@ describePackageArtifact("packaged plugin entry, loaded and run for real", (artif
       const ready = (await drain()).find((message) => message.kind === "ready");
       expect(ready).toBeDefined();
 
-      send({ kind: "invokeCommand", commandRequestId: "req-1", commandId: nmrPredictCarbonCommandId });
+      send({ kind: "invokeCommand", commandRequestId: "req-1", commandId });
 
       let settled: WorkerMessage | undefined;
       for (let round = 0; round < 20 && !settled; round += 1) {
@@ -66,15 +70,15 @@ describePackageArtifact("packaged plugin entry, loaded and run for real", (artif
           const value =
             namespace === "selection" && method === "getSelection"
               ? {
-                  objectIds: ["toluene-1"],
+                  objectIds: ["molecule-1"],
                   molecules: [
                     {
-                      objectId: "toluene-1",
+                      objectId: "molecule-1",
                       documentId: "doc-1",
                       pageId: "page-1",
                       structureFormat: "smiles",
-                      structure: "Cc1ccccc1",
-                      sourceFingerprint: "toluene-fixture"
+                      structure: smiles,
+                      sourceFingerprint: "fixture"
                     }
                   ]
                 }
@@ -84,9 +88,15 @@ describePackageArtifact("packaged plugin entry, loaded and run for real", (artif
       }
 
       expect(settled).toBeDefined();
-      const commandResult = (settled as WorkerMessage & { value: { ok: boolean; data?: { resonances: unknown[] } } }).value;
+      const commandResult = (settled as WorkerMessage & { value: { ok: boolean; data?: NmrPredictionResult } }).value;
       expect(commandResult.ok).toBe(true);
-      expect(commandResult.data?.resonances).toHaveLength(5);
+      expect(commandResult.data?.resonances).toHaveLength(count);
+      expect(commandResult.data?.resonances).toEqual(
+        Array.from({ length: count }, () => expect.objectContaining({ nucleus, source: "lookup" }))
+      );
+      if (nucleus === "31P") {
+        expect(commandResult.data?.backend.dataChecksum).toBe(PHOSPHORUS_MEASURED_ACCURACY.corpusSha256);
+      }
     } finally {
       g.postMessage = previous.postMessage;
       g.addEventListener = previous.addEventListener;
