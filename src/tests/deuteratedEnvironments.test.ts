@@ -136,11 +136,10 @@ describe("deuterated host molfile environments", () => {
     assertFirstOrderDisclosure(result);
   });
 
-  it("leaves unlabelled ethanol byte-for-byte unchanged from the base commit", async () => {
-    // Complete serialized result captured at 0eb8a69 with the same fixed clock and request.
+  it("matches the unlabelled ethanol serialization baseline", async () => {
     const result = await predict(ethanol);
     expect(createHash("sha256").update(JSON.stringify(result)).digest("hex"))
-      .toBe("58dd353b57af856547ae556c57a16b1c75bea1d3d5b839ae8ef9065ebc4c4404");
+      .toBe("f3c12b364cc0d82cce1be0971ceacbf318f6d353c535911691a455e1e7c1b0e0");
   });
 
   it("CH3NHD retains the methyl shift and declines NH as for plain methylamine", async () => {

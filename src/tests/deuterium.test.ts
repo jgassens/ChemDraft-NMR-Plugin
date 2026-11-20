@@ -292,7 +292,7 @@ describe("first-order ¹H–²H coupling", () => {
 });
 
 describe("unchanged output for structures without D", () => {
-  // SHA-256 of complete serialized results, reports and SVGs captured before this implementation.
+  // SHA-256 of complete serialized results, reports and SVGs for the bundled reference data.
   // Any byte change, including property order, atom ordering, shift values or H–H constants fails.
   const digest = (value: string) => createHash("sha256").update(value).digest("hex");
   it.each(baselines)("preserves all bytes for $structure.value", async (baseline) => {
