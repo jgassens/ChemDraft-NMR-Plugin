@@ -14,6 +14,7 @@ export function determineAnalysisStatus(result: NmrPredictionResult): NmrAnalysi
   }
   const partialWarningCodes = new Set<string>([
     NmrWarningCodes.NoFragmentMatch,
+    NmrWarningCodes.PhosphorusDatabaseNotInstalled,
     NmrWarningCodes.PartialPrediction,
     NmrWarningCodes.RuleEstimated,
     NmrWarningCodes.UnsupportedElement,

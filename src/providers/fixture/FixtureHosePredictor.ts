@@ -71,8 +71,10 @@ export class FixtureHosePredictor implements NmrPredictor {
       throwIfAborted(signal);
       if (nucleus === "13C") {
         unmatchedAtoms += this.predictCarbon(molecule, resonances, warnings);
-      } else {
+      } else if (nucleus === "1H") {
         unmatchedAtoms += this.predictProton(molecule, request, resonances, warnings);
+      } else {
+        warnings.push(nmrWarning(NmrWarningCodes.PhosphorusDatabaseNotInstalled, "31P database not installed"));
       }
     }
 

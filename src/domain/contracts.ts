@@ -9,7 +9,7 @@
  */
 import type { NmrPredictionWarning } from "./warnings";
 
-export type NmrNucleus = "1H" | "13C";
+export type NmrNucleus = "1H" | "13C" | "31P";
 /** Heuristic ¹H reference-spread threshold for flagging a broad HOSE reference distribution; not an accuracy claim. */
 export const PROTON_HIGH_DISPERSION_CROSS_CHECK_PPM = 0.5;
 
@@ -146,11 +146,9 @@ export function isRuleEstimated(resonance: NmrResonance): boolean {
   return resonance.source === "rule-estimate" || resonance.evidence?.method === "rule-estimated";
 }
 
-export interface NmrPredictionBackend {
-  id: string;
+export interface NmrReferenceDatabase {
   version: string;
   dataVersion?: string;
-  method: string;
   /** Reference-database provenance, surfaced in the panel (see ADR-0014). */
   license?: string;
   attribution?: string;
@@ -158,6 +156,13 @@ export interface NmrPredictionBackend {
   /** SHA-256 of the raw corpus the active database was compiled from (M28). Lets the report layer
    * attach measured benchmark results to exactly the data they were measured on (ADR-0026). */
   dataChecksum?: string;
+}
+
+export interface NmrPredictionBackend extends NmrReferenceDatabase {
+  id: string;
+  method: string;
+  /** Separate reference provenance when phosphorus and other nuclei are requested together. */
+  phosphorusDatabase?: NmrReferenceDatabase;
 }
 
 export interface NmrStructureAtom {

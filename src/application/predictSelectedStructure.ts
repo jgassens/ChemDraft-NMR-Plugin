@@ -50,7 +50,8 @@ export async function predictSelectedStructure(
 
   // "Run again" must re-run the nucleus the user is viewing — not the panel's default (¹³C) command.
   const rerunCommandId = config.nuclei.includes("1H") ? nmrPredictProtonCommandId : nmrPredictCarbonCommandId;
-  const withRerun = (report: PluginPanelReport): PluginPanelReport => ({ ...report, rerunCommandId });
+  const withRerun = (report: PluginPanelReport): PluginPanelReport =>
+    config.nuclei.includes("31P") ? report : { ...report, rerunCommandId };
 
   if (!selection || !analysis) {
     return {

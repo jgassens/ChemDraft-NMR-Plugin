@@ -72,11 +72,13 @@ export function renderStickSpectrumSvg(result: NmrPredictionResult, options: Sti
     .join("");
 
   const sourceLabel = result.backend.method === "fixture-fragment" ? "synthetic fixture" : "predicted";
-  const axisLabel = `${nucleus === "13C" ? "¹³C" : "¹H"} δ (ppm) — ${sourceLabel}`;
+  const isotopeLabel = { "1H": "¹H", "13C": "¹³C", "31P": "³¹P" }[nucleus];
+  const nucleusName = { "1H": "proton", "13C": "carbon-13", "31P": "phosphorus-31" }[nucleus];
+  const axisLabel = `${isotopeLabel} δ (ppm) — ${sourceLabel}`;
 
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" ` +
-    `role="img" aria-label="Predicted ${nucleus === "13C" ? "carbon-13" : "proton"} stick spectrum">` +
+    `role="img" aria-label="Predicted ${nucleusName} stick spectrum">` +
     `<rect x="0" y="0" width="${width}" height="${height}" rx="8" fill="#ffffff" />` +
     `<line x1="${margin.left}" y1="${baseY}" x2="${margin.left + plotWidth}" y2="${baseY}" stroke="#334155" stroke-width="1.5" />` +
     ticks +
@@ -103,7 +105,10 @@ function escapeXml(value: string): string {
 }
 
 function domain(nucleus: NmrNucleus, shifts: readonly number[]): { min: number; max: number } {
-  const defaults = nucleus === "13C" ? { min: 0, max: 220 } : { min: 0, max: 12 };
+  if (nucleus === "31P" && shifts.length > 0) {
+    return { min: Math.floor(Math.min(...shifts) - 5), max: Math.ceil(Math.max(...shifts) + 5) };
+  }
+  const defaults = { "1H": { min: 0, max: 12 }, "13C": { min: 0, max: 220 }, "31P": { min: -10, max: 10 } }[nucleus];
   if (shifts.length === 0) {
     return defaults;
   }

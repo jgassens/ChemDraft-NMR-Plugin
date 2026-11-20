@@ -4,6 +4,8 @@ import type { NmrNucleus, NmrPredictionOptions } from "../../domain/contracts";
 import { atomEnvironmentCodes, environmentKey, MAX_SPHERES, protonHostAtom } from "./environmentCode";
 import type { CompiledNmrDatabase, NmrDatabaseEntry } from "./localDatabase";
 import { isDeuterium, protonCount } from "./hydrogenIsotopes";
+import type { NmredataRecord } from "./nmredata";
+import type { IndexedNmredataMolecule } from "./nmredataMolecule";
 
 export interface Match {
   code: string;
@@ -21,6 +23,7 @@ export interface ProductionLookupResult {
 export interface ProductionLookupContext {
   carbonClasses: readonly (readonly number[])[];
   protonClasses: readonly (readonly number[])[];
+  phosphorusAtoms: readonly number[];
   maxSpheres: number;
   /** Internal data is deliberately opaque so callers cannot accidentally recreate lookup logic. */
   readonly _canonicalMolecule: OCL.Molecule;
@@ -83,6 +86,7 @@ export function prepareProductionLookup(
   return {
     carbonClasses: classes.filter((atoms) => normalized.getAtomicNo(atoms[0]) === 6),
     protonClasses: classes.filter((atoms) => protonCount(normalized, atoms[0]) > 0),
+    phosphorusAtoms: classes.filter((atoms) => normalized.getAtomicNo(atoms[0]) === 15).flat(),
     maxSpheres,
     _canonicalMolecule: shiftOrder.molecule,
     _inputToCanonical: canonicalOrder.inputToCanonical.map((_, atom) =>
@@ -96,13 +100,56 @@ export function prepareProductionLookup(
 }
 
 /**
- * The heavy atom whose environment keys a resonance: the carbon itself for ¹³C, the attached heavy
- * atom for an explicit ¹H. Returns -1 when the atom cannot carry that nucleus. Indices are into the
+ * The heavy atom whose environment keys a resonance: the atom itself for ¹³C and ³¹P, the attached
+ * heavy atom for an explicit ¹H. Returns -1 when the atom cannot carry that nucleus. Indices are into the
  * molecule passed to `prepareProductionLookup`, which keeps heavy-atom indices unchanged.
  */
 export function productionCodeAtom(molecule: OCL.Molecule, nucleus: NmrNucleus, atom: number): number {
   if (nucleus === "13C") return molecule.getAtomicNo(atom) === 6 ? atom : -1;
+  if (nucleus === "31P") return molecule.getAtomicNo(atom) === 15 ? atom : -1;
   return molecule.getAtomicNo(atom) === 1 && !isDeuterium(molecule, atom) ? protonHostAtom(molecule, atom) : -1;
+}
+
+/** Share assignment weighting across compilation and evaluation. Carbon and proton observations
+ * are counted per symmetry class within each assignment. Each listed phosphorus atom counts once. */
+export function* assignedProductionAtoms(
+  record: NmredataRecord,
+  { molecule, oclAtomByMolfileIndex }: IndexedNmredataMolecule,
+  context: ProductionLookupContext,
+  nuclei?: readonly NmrNucleus[]
+): Generator<{ nucleus: NmrNucleus; atom: number; shift: number }> {
+  const classByAtom = {
+    "13C": indexProductionClasses(context.carbonClasses),
+    "1H": indexProductionClasses(context.protonClasses)
+  };
+  for (const assignment of record.assignments) {
+    const { label, shift } = assignment;
+    const nucleus = record.carbonLabels.has(label) ? "13C"
+      : record.protonLabels.has(label) ? "1H"
+      : record.phosphorusLabels.has(label) ? "31P"
+      : undefined;
+    if (!nucleus || (nuclei && !nuclei.includes(nucleus))) continue;
+
+    const seen = new Set<number>();
+    for (const reference of assignment.atoms) {
+      const mapped = oclAtomByMolfileIndex.get(reference);
+      if (mapped === undefined) continue;
+      const atom = productionCodeAtom(molecule, nucleus, mapped);
+      if (atom < 0) continue;
+      const observation = nucleus === "31P" ? atom : classByAtom[nucleus].get(atom);
+      if (observation === undefined || seen.has(observation)) continue;
+      seen.add(observation);
+      yield { nucleus, atom, shift };
+    }
+  }
+}
+
+function indexProductionClasses(classes: readonly (readonly number[])[]): ReadonlyMap<number, number> {
+  const classByAtom = new Map<number, number>();
+  for (let index = 0; index < classes.length; index += 1) {
+    for (const atom of classes[index]) classByAtom.set(atom, index);
+  }
+  return classByAtom;
 }
 
 /**

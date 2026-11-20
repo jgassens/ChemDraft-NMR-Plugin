@@ -9,6 +9,7 @@ import type {
   NmrPredictionResult,
   NmrPredictor,
   NmrPredictorCapabilities,
+  NmrReferenceDatabase,
   NmrResonance
 } from "../../domain/contracts";
 import { PROTON_HIGH_DISPERSION_CROSS_CHECK_PPM } from "../../domain/contracts";
@@ -37,6 +38,8 @@ const LABILE_HYDROGEN_HOSTS = new Set([7, 8, 16]);
 
 export interface OclHosePredictorOptions {
   database?: CompiledNmrDatabase;
+  /** An explicitly loaded local ³¹P table, independent of the ¹H/¹³C table. */
+  phosphorusDatabase?: CompiledNmrDatabase;
   now?: () => string;
 }
 
@@ -56,10 +59,12 @@ type Statistic = NmrPredictionOptions["statistic"];
  */
 export class OclHosePredictor implements NmrPredictor {
   private readonly database: CompiledNmrDatabase;
+  private readonly phosphorusDatabase?: CompiledNmrDatabase;
   private readonly now: () => string;
 
   constructor(options: OclHosePredictorOptions = {}) {
     this.database = options.database ?? (bundledDatabase as unknown as CompiledNmrDatabase);
+    this.phosphorusDatabase = options.phosphorusDatabase;
     this.now = options.now ?? (() => new Date().toISOString());
   }
 
@@ -72,7 +77,9 @@ export class OclHosePredictor implements NmrPredictor {
       id: "chemdraft.ocl-hose",
       version: this.database.provenance.version,
       execution: "worker-js",
-      nuclei: this.database.provenance.nuclei,
+      nuclei: this.phosphorusDatabase
+        ? dedupeNuclei([...this.database.provenance.nuclei, "31P"])
+        : this.database.provenance.nuclei.filter((nucleus) => nucleus !== "31P"),
       supportsAtomAssignments: true,
       supportsUncertainty: true,
       supportsCouplings: true,
@@ -127,9 +134,20 @@ export class OclHosePredictor implements NmrPredictor {
     }
     let heavyAtomDiastereotopicIds: readonly (string | undefined)[] | undefined;
     let heavyAtomDiastereotopyAttempted = false;
+    let omittedPhosphorus = 0;
 
     for (const nucleus of nuclei) {
       throwIfAborted(signal);
+      if (nucleus === "31P") {
+        if (this.phosphorusDatabase) {
+          omittedPhosphorus = predictPhosphorus(
+            this.phosphorusDatabase, lookupContext, request.options.statistic, resonances, warnings
+          );
+        } else {
+          warnings.push(nmrWarning(NmrWarningCodes.PhosphorusDatabaseNotInstalled, "31P database not installed"));
+        }
+        continue;
+      }
       const resonanceStart = resonances.length;
       const counts =
         nucleus === "13C"
@@ -220,19 +238,31 @@ export class OclHosePredictor implements NmrPredictor {
         )
       );
     }
+    if (omittedPhosphorus > 0 && resonances.length > 0) {
+      warnings.push(nmrWarning(
+        NmrWarningCodes.PartialPrediction,
+        `${omittedPhosphorus} phosphorus atom(s) were omitted because no 31P database environment matched.`,
+        { details: { omittedEnvironmentCount: omittedPhosphorus, nucleus: "31P" } }
+      ));
+    }
+
+    const phosphorusOnly = nuclei.length === 1 && nuclei[0] === "31P";
+    const phosphorusProvenance = nuclei.includes("31P") ? this.phosphorusDatabase?.provenance : undefined;
+    const primary = phosphorusOnly ? phosphorusProvenance : this.database.provenance;
+    const { version, dataVersion, ...databaseDetails } = primary
+      ? referenceDatabase(primary)
+      : { version: this.database.provenance.version, dataVersion: undefined };
 
     return {
       schemaVersion: "1",
       sourceFingerprint: request.sourceFingerprint || fingerprintStructureInput(request.structure),
       backend: {
         id: "chemdraft.ocl-hose",
-        version: this.database.provenance.version,
-        dataVersion: this.database.provenance.name,
+        version,
+        ...(dataVersion === undefined ? {} : { dataVersion }),
         method: "hose-fragment",
-        license: this.database.provenance.license,
-        attribution: this.database.provenance.attribution,
-        source: this.database.provenance.source,
-        ...(this.database.provenance.inputSha256 ? { dataChecksum: this.database.provenance.inputSha256 } : {})
+        ...databaseDetails,
+        ...(!phosphorusOnly && phosphorusProvenance ? { phosphorusDatabase: referenceDatabase(phosphorusProvenance) } : {})
       },
       resonances,
       warnings,
@@ -240,6 +270,41 @@ export class OclHosePredictor implements NmrPredictor {
       depiction: buildStructureDepiction(molecule)
     };
   }
+}
+
+function referenceDatabase(provenance: NmrDatabaseProvenance): NmrReferenceDatabase {
+  return {
+    version: provenance.version,
+    dataVersion: provenance.name,
+    license: provenance.license,
+    attribution: provenance.attribution,
+    source: provenance.source,
+    ...(provenance.inputSha256 ? { dataChecksum: provenance.inputSha256 } : {})
+  };
+}
+
+function predictPhosphorus(
+  database: CompiledNmrDatabase,
+  lookupContext: ProductionLookupContext,
+  statistic: Statistic,
+  resonances: NmrResonance[],
+  warnings: NmrPredictionWarning[]
+): number {
+  let omitted = 0;
+  for (const atom of lookupContext.phosphorusAtoms) {
+    const { match, codes } = lookupProductionEnvironment(database, lookupContext, "31P", atom);
+    if (match) {
+      resonances.push(buildResonance("31P", match, statistic, [atom], 1, [{ element: "P", count: 1 }], warnings));
+    } else {
+      omitted += 1;
+      warnings.push(nmrWarning(
+        NmrWarningCodes.NoFragmentMatch,
+        `No 31P database match for atom ${atom}; the resonance was omitted.`,
+        { atomIndices: [atom], details: { nucleus: "31P", environmentCode: codes[0] } }
+      ));
+    }
+  }
+  return omitted;
 }
 
 /** Disclose geminal and heteroatom vicinal paths, which the H–D estimator omits.
@@ -914,7 +979,7 @@ function buildResonance(
   }
 
   return {
-    id: `${nucleus === "13C" ? "c" : "h"}-${Math.min(...atoms)}`,
+    id: `${nucleus === "31P" ? "p" : nucleus === "13C" ? "c" : "h"}-${Math.min(...atoms)}`,
     nucleus,
     source: "lookup",
     deltaPpm,
@@ -933,7 +998,7 @@ function buildResonance(
 }
 
 function buildEstimatedResonance(
-  nucleus: NmrNucleus,
+  nucleus: "1H" | "13C",
   atoms: readonly number[],
   equivalentNuclei: number,
   refs: readonly { element: string; count: number }[],

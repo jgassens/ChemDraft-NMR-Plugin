@@ -14,6 +14,7 @@ export interface MeasuredErrorStats {
   mae: number;
   medianAe: number;
   p90Ae: number;
+  rmse?: number;
 }
 
 export interface MeasuredNucleusAccuracy {
@@ -26,12 +27,22 @@ export interface MeasuredNucleusAccuracy {
 }
 
 export interface MeasuredAccuracy {
-  /** SHA-256 of the raw NMReDATA corpus the benchmark split and the bundled database share. */
+  /** SHA-256 of the raw NMReDATA corpus shared by the benchmark and production database. */
   corpusSha256: string;
   benchmarkDate: string;
   seed: number;
   holdOutPerMille: number;
   nuclei: Partial<Record<NmrNucleus, MeasuredNucleusAccuracy>>;
+}
+
+export interface PhosphorusMeasuredAccuracy extends Omit<MeasuredAccuracy, "seed"> {
+  partition: string;
+  bootstrapSeed: number;
+  bootstrapResamples: number;
+  bootstrap95: {
+    mae: readonly [number, number];
+    rmse: readonly [number, number];
+  };
 }
 
 export const MEASURED_ACCURACY: MeasuredAccuracy = {
@@ -65,4 +76,29 @@ export const MEASURED_ACCURACY: MeasuredAccuracy = {
       }
     }
   }
+};
+
+/** Measured by the source-reference split in docs/p31-benchmark.md. This checksum gates only ³¹P. */
+export const PHOSPHORUS_MEASURED_ACCURACY: PhosphorusMeasuredAccuracy = {
+  corpusSha256: "86a0da75ea2953de294c37cc32cb81d440383ab0aaf7c3f982cb0f4d1b659d37",
+  benchmarkDate: "2026-11-20",
+  partition: "held-out source references, 10%, molecule-deduplicated",
+  holdOutPerMille: 100,
+  bootstrapSeed: 1,
+  bootstrapResamples: 1000,
+  nuclei: {
+    "31P": {
+      assigned: 5577,
+      matched: 5292,
+      coverage: 0.949,
+      structures: 5189,
+      hose: { count: 5292, mae: 7.599, medianAe: 2.27, p90Ae: 17.6, rmse: 19.857 },
+      byTier: {
+        high: { count: 887, mae: 1.725, medianAe: 0.93, p90Ae: 3.52, rmse: 3.418 },
+        medium: { count: 1697, mae: 4.903, medianAe: 1.56, p90Ae: 8.24, rmse: 18.024 },
+        low: { count: 2708, mae: 11.213, medianAe: 4.3, p90Ae: 27.5, rmse: 23.731 }
+      }
+    }
+  },
+  bootstrap95: { mae: [6.33, 8.903], rmse: [15.774, 23.517] }
 };

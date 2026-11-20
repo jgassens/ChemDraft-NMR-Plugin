@@ -7,9 +7,9 @@ import type {
 } from "@chemdraft/plugin-api";
 
 import { isRuleEstimated, PROTON_HIGH_DISPERSION_CROSS_CHECK_PPM } from "../domain/contracts";
-import type { NmrNucleus, NmrPredictionResult, NmrResonance } from "../domain/contracts";
+import type { NmrNucleus, NmrPredictionResult, NmrReferenceDatabase, NmrResonance } from "../domain/contracts";
 import type { CommandError } from "../application/mapSelection";
-import { MEASURED_ACCURACY } from "../providers/ocl/measuredAccuracy";
+import { MEASURED_ACCURACY, PHOSPHORUS_MEASURED_ACCURACY } from "../providers/ocl/measuredAccuracy";
 import { DEUTERIUM_PROTON_GYROMAGNETIC_RATIO } from "../domain/firstOrderCoupling";
 import { NmrWarningCodes } from "../domain/warnings";
 import { deuteriumMultipletComponents, hasDeuteriumCoupling } from "./deuteriumMultiplet";
@@ -34,7 +34,7 @@ const OTHER_METHOD_NOTE =
   "measurements; consult the engine provenance and notices for method-specific limits.";
 
 function nucleusLabel(nucleus: NmrNucleus): string {
-  return nucleus === "13C" ? "¹³C" : "¹H";
+  return { "1H": "¹H", "13C": "¹³C", "31P": "³¹P" }[nucleus];
 }
 
 function nucleiLabel(nuclei: readonly NmrNucleus[]): string {
@@ -100,7 +100,15 @@ export function composePredictionReport(
 
   if (result.resonances.length > 0) {
     sections.push(...estimateProvenanceSections(result));
-    sections.push(linkedFigureSection(result, methods));
+    const phosphorus = result.resonances.filter((resonance) => resonance.nucleus === "31P");
+    if (phosphorus.length > 0 && phosphorus.length < result.resonances.length) {
+      const other = { ...result, resonances: result.resonances.filter((resonance) => resonance.nucleus !== "31P") };
+      const phosphorusOnly = { ...result, resonances: phosphorus };
+      sections.push(linkedFigureSection(other, resultMethodSummary(other)));
+      sections.push(linkedFigureSection(phosphorusOnly, resultMethodSummary(phosphorusOnly)));
+    } else {
+      sections.push(linkedFigureSection(result, methods));
+    }
     sections.push(resonanceTable(result));
     if (methods.hasRules) {
       sections.push({
@@ -160,6 +168,16 @@ function resultMethodSummary(result: NmrPredictionResult): ResultMethodSummary {
 }
 
 function resultDisclaimer(result: NmrPredictionResult, methods: ResultMethodSummary): string {
+  if (result.resonances.some((resonance) => resonance.nucleus === "31P")) {
+    const note = "³¹P shifts use statistics from the supplied phosphorus table. Confidence reflects the matched sphere and reference population.";
+    if (result.resonances.every((resonance) => resonance.nucleus === "31P")) return note;
+    return `${methods.hasRules ? MIXED_METHOD_NOTE : EXPERIMENTAL_NOTE} ${note}`;
+  }
+  if (methods.empty && result.warnings.some((warning) =>
+    warning.code === NmrWarningCodes.PhosphorusDatabaseNotInstalled || warning.details?.nucleus === "31P"
+  )) {
+    return "No applicable resonance was produced. See the notices for the database and its coverage.";
+  }
   if (methods.empty) return NO_RESULT_NOTE;
   if (methods.fixture) return SYNTHETIC_DISCLAIMER;
   if (methods.hasHose && methods.hasRules) return MIXED_METHOD_NOTE;
@@ -224,7 +242,7 @@ function linkedFigureSection(result: NmrPredictionResult, methods: ResultMethodS
   const section: PluginLinkedFigureSection = {
     kind: "linkedFigure",
     title: `Predicted ${nucleusLabel(nucleus)} NMR`,
-    caption: figureCaption(methods) + (result.resonances.some(hasDeuteriumCoupling)
+    caption: figureCaption(methods, nucleus) + (result.resonances.some(hasDeuteriumCoupling)
       ? " H–D couplings are typical first-order estimates; H–D multiplets use spin-1 intensities and follow the selected spectrometer field (see H–D coupling legend)."
       : ""),
     spectrum: {
@@ -244,7 +262,7 @@ function linkedFigureSection(result: NmrPredictionResult, methods: ResultMethodS
     }
   };
 
-  if (methods.hasHose) {
+  if (methods.hasHose && nucleus !== "31P") {
     // Measured 106/196 CDCl₃ in the NMReDATA sample (then D₂O, DMSO-d₆, …): predominant, not uniform.
     // Only stated for measured-data results — the synthetic fixture has no solvent context.
     section.spectrum.solvent = "CDCl₃ (predominant reference solvent; mixed corpus)";
@@ -260,9 +278,10 @@ function linkedFigureSection(result: NmrPredictionResult, methods: ResultMethodS
   return section;
 }
 
-function figureCaption(methods: ResultMethodSummary): string {
+function figureCaption(methods: ResultMethodSummary, nucleus: NmrNucleus): string {
   const interaction =
-    "¹H–¹H couplings are typical first-order estimates. Peak height represents predicted equivalent nuclei, not experimental integration. " +
+    (nucleus === "31P" ? "Peaks identify the matched phosphorus atoms. " : "¹H–¹H couplings are typical first-order estimates. ") +
+    "Peak height represents predicted equivalent nuclei, not experimental integration. " +
     "Scroll to zoom, drag to pan; hover a peak to highlight its atoms.";
   if (methods.fixture) return `Synthetic fixture spectrum. ${interaction}`;
   if (methods.hasHose && methods.hasRules) {
@@ -281,10 +300,10 @@ function figureCaption(methods: ResultMethodSummary): string {
  */
 function spectrumDomain(nucleus: NmrNucleus, shifts: readonly number[]): { min: number; max: number } {
   if (shifts.length === 0) {
-    return nucleus === "13C" ? { min: 0, max: 220 } : { min: 0, max: 12 };
+    return { "1H": { min: 0, max: 12 }, "13C": { min: 0, max: 220 }, "31P": { min: -10, max: 10 } }[nucleus];
   }
-  const buffer = nucleus === "13C" ? 10 : 1;
-  const snap = nucleus === "13C" ? 5 : 0.5;
+  const buffer = nucleus === "1H" ? 1 : 10;
+  const snap = nucleus === "1H" ? 0.5 : 5;
   const lo = Math.min(...shifts) - buffer;
   const hi = Math.max(...shifts) + buffer;
   return { min: Math.floor(lo / snap) * snap, max: Math.ceil(hi / snap) * snap };
@@ -404,23 +423,37 @@ function confidenceCell(resonance: NmrResonance): string {
  *  carries it (the OCL-native predictor does; the fixture does not). */
 function databaseSection(result: NmrPredictionResult): PluginPanelSection[] {
   const { backend } = result;
-  if (!backend.license && !backend.source) {
-    return [];
+  const { phosphorusDatabase } = backend;
+  const nuclei = distinctNuclei(result);
+  const sections = referenceDatabaseSections(
+    backend, backend.id, phosphorusDatabase ? nuclei.filter((nucleus) => nucleus !== "31P") : nuclei
+  );
+  if (phosphorusDatabase) {
+    sections.push(...referenceDatabaseSections(phosphorusDatabase, backend.id, nuclei.filter((nucleus) => nucleus === "31P")));
   }
+  return sections;
+}
+
+function referenceDatabaseSections(
+  database: NmrReferenceDatabase,
+  backendId: string,
+  nuclei: readonly NmrNucleus[]
+): PluginPanelSection[] {
+  if (!database.license && !database.source) return [];
   const rows = [
-    { label: "Database", value: backend.dataVersion ?? backend.id },
-    { label: "Version", value: backend.version }
+    { label: "Database", value: database.dataVersion ?? backendId },
+    { label: "Version", value: database.version }
   ];
-  if (backend.license) {
-    rows.push({ label: "License", value: backend.license });
+  if (database.license) {
+    rows.push({ label: "License", value: database.license });
   }
-  if (backend.source) {
-    rows.push({ label: "Source", value: backend.source });
+  if (database.source) {
+    rows.push({ label: "Source", value: database.source });
   }
-  rows.push(...measuredAccuracyRows(result));
+  rows.push(...measuredAccuracyRows(database.dataChecksum, nuclei));
   const sections: PluginPanelSection[] = [{ kind: "keyValue", title: "Reference database", rows }];
-  if (backend.attribution) {
-    sections.push({ kind: "text", body: backend.attribution });
+  if (database.attribution) {
+    sections.push({ kind: "text", body: database.attribution });
   }
   return sections;
 }
@@ -428,13 +461,12 @@ function databaseSection(result: NmrPredictionResult): PluginPanelSection[] {
 /** Held-out benchmark error for the nuclei in this result — shown only when the active database was
  * compiled from the exact corpus the benchmark measured (checksum equality). A rebuild from any
  * other corpus silently drops the claim until the benchmark is rerun (ADR-0026). */
-function measuredAccuracyRows(result: NmrPredictionResult): { label: string; value: string }[] {
-  if (result.backend.dataChecksum !== MEASURED_ACCURACY.corpusSha256) {
-    return [];
-  }
+function measuredAccuracyRows(dataChecksum: string | undefined, nuclei: readonly NmrNucleus[]): { label: string; value: string }[] {
   const rows: { label: string; value: string }[] = [];
-  for (const nucleus of distinctNuclei(result)) {
-    const measured = MEASURED_ACCURACY.nuclei[nucleus];
+  for (const nucleus of nuclei) {
+    const benchmark = nucleus === "31P" ? PHOSPHORUS_MEASURED_ACCURACY : MEASURED_ACCURACY;
+    if (dataChecksum !== benchmark.corpusSha256) continue;
+    const measured = benchmark.nuclei[nucleus];
     if (!measured) continue;
     const tiers = (["high", "medium", "low"] as const)
       .flatMap((tier) => {
@@ -444,7 +476,9 @@ function measuredAccuracyRows(result: NmrPredictionResult): { label: string; val
       .join(" / ");
     rows.push({
       label: `Measured accuracy (${nucleiLabel([nucleus])})`,
-      value: `median |Δ| ${measured.hose.medianAe} ppm (${tiers}) — held-out benchmark, ${MEASURED_ACCURACY.benchmarkDate}`
+      value: `median |Δ| ${measured.hose.medianAe} ppm (${tiers}) — ${nucleus === "31P"
+        ? PHOSPHORUS_MEASURED_ACCURACY.partition
+        : "held-out benchmark"}, ${benchmark.benchmarkDate}`
     });
   }
   return rows;

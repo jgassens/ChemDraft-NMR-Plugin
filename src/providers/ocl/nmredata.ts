@@ -18,6 +18,7 @@ export interface NmredataRecord {
   assignments: NmredataAssignment[];
   carbonLabels: Set<string>;
   protonLabels: Set<string>;
+  phosphorusLabels: Set<string>;
 }
 
 /** Split an SD export into records and parse the NMReDATA tags of each usable one. Records without
@@ -25,23 +26,25 @@ export interface NmredataRecord {
 export function parseNmredataRecords(sdContent: string): NmredataRecord[] {
   const records: NmredataRecord[] = [];
   for (const raw of splitRecords(sdContent)) {
-    const molfile = extractMolfile(raw);
-    if (!molfile) {
-      continue;
-    }
-    const assignments = parseAssignments(raw);
-    if (assignments.length === 0) {
-      continue;
-    }
-    records.push({
-      raw,
-      molfile,
-      assignments,
-      carbonLabels: parseSpectrumLabels(raw, "NMREDATA_1D_13C"),
-      protonLabels: parseSpectrumLabels(raw, "NMREDATA_1D_1H")
-    });
+    const record = parseNmredataRecord(raw);
+    if (record) records.push(record);
   }
   return records;
+}
+
+export function parseNmredataRecord(raw: string): NmredataRecord | undefined {
+  const molfile = extractMolfile(raw);
+  if (!molfile) return undefined;
+  const assignments = parseAssignments(raw);
+  if (assignments.length === 0) return undefined;
+  return {
+    raw,
+    molfile,
+    assignments,
+    carbonLabels: parseSpectrumLabels(raw, "NMREDATA_1D_13C"),
+    protonLabels: parseSpectrumLabels(raw, "NMREDATA_1D_1H"),
+    phosphorusLabels: parseSpectrumLabels(raw, "NMREDATA_1D_31P")
+  };
 }
 
 export function splitRecords(content: string): string[] {

@@ -6,7 +6,7 @@
  */
 import { z } from "zod";
 
-export const NmrNucleusSchema = z.enum(["1H", "13C"]);
+export const NmrNucleusSchema = z.enum(["1H", "13C", "31P"]);
 
 export const ChemicalStructureInputSchema = z.object({
   format: z.enum(["smiles", "molfile-v2000", "molfile-v3000"]),
@@ -90,15 +90,25 @@ const NmrResonanceSchema = z.object({
   flags: z.array(z.string())
 });
 
-const NmrPredictionBackendSchema = z.object({
-  id: z.string(),
+const NmrReferenceDatabaseSchema = z.object({
   version: z.string(),
   dataVersion: z.string().optional(),
-  method: z.string(),
   license: z.string().optional(),
   attribution: z.string().optional(),
   source: z.string().optional(),
   dataChecksum: z.string().optional()
+});
+
+const NmrPredictionBackendSchema = z.object({
+  id: z.string(),
+  version: NmrReferenceDatabaseSchema.shape.version,
+  dataVersion: NmrReferenceDatabaseSchema.shape.dataVersion,
+  method: z.string(),
+  license: NmrReferenceDatabaseSchema.shape.license,
+  attribution: NmrReferenceDatabaseSchema.shape.attribution,
+  source: NmrReferenceDatabaseSchema.shape.source,
+  dataChecksum: NmrReferenceDatabaseSchema.shape.dataChecksum,
+  phosphorusDatabase: NmrReferenceDatabaseSchema.optional()
 });
 
 const NmrPredictionWarningSchema = z.object({

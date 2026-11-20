@@ -13,6 +13,7 @@ export const NmrWarningCodes = {
   RadicalNotSupported: "NMR_RADICAL_NOT_SUPPORTED",
   LabileProtonOmitted: "NMR_LABILE_PROTON_OMITTED",
   NoFragmentMatch: "NMR_NO_FRAGMENT_MATCH",
+  PhosphorusDatabaseNotInstalled: "NMR_PHOSPHORUS_DATABASE_NOT_INSTALLED",
   LowHoseSphereMatch: "NMR_LOW_HOSE_SPHERE_MATCH",
   SmallReferencePopulation: "NMR_SMALL_REFERENCE_POPULATION",
   PartialPrediction: "NMR_PARTIAL_PREDICTION",
