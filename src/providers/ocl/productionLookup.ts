@@ -23,13 +23,13 @@ export interface ProductionLookupResult {
 export interface ProductionLookupContext {
   carbonClasses: readonly (readonly number[])[];
   protonClasses: readonly (readonly number[])[];
-  phosphorusAtoms: readonly number[];
+  phosphorusClasses: readonly (readonly number[])[];
   maxSpheres: number;
   /** Internal data is deliberately opaque so callers cannot accidentally recreate lookup logic. */
   readonly _canonicalMolecule: OCL.Molecule;
   readonly _inputToCanonical: readonly number[];
   readonly _representativeByAtom: readonly number[];
-  readonly _codesByRepresentative: Map<number, readonly string[]>;
+  readonly _codesByRepresentative: Map<string, readonly string[]>;
   /** Isotope-blind shift model only; the original molecule still owns counts and couplings. */
   readonly _shiftMolecule: OCL.Molecule;
   readonly _inputToShift: readonly number[];
@@ -86,7 +86,7 @@ export function prepareProductionLookup(
   return {
     carbonClasses: classes.filter((atoms) => normalized.getAtomicNo(atoms[0]) === 6),
     protonClasses: classes.filter((atoms) => protonCount(normalized, atoms[0]) > 0),
-    phosphorusAtoms: classes.filter((atoms) => normalized.getAtomicNo(atoms[0]) === 15).flat(),
+    phosphorusClasses: classes.filter((atoms) => normalized.getAtomicNo(atoms[0]) === 15),
     maxSpheres,
     _canonicalMolecule: shiftOrder.molecule,
     _inputToCanonical: canonicalOrder.inputToCanonical.map((_, atom) =>
@@ -110,8 +110,8 @@ export function productionCodeAtom(molecule: OCL.Molecule, nucleus: NmrNucleus, 
   return molecule.getAtomicNo(atom) === 1 && !isDeuterium(molecule, atom) ? protonHostAtom(molecule, atom) : -1;
 }
 
-/** Share assignment weighting across compilation and evaluation. Carbon and proton observations
- * are counted per symmetry class within each assignment. Each listed phosphorus atom counts once. */
+/** Share assignment weighting across compilation and evaluation. Observations are counted once
+ * per symmetry class within each assignment. */
 export function* assignedProductionAtoms(
   record: NmredataRecord,
   { molecule, oclAtomByMolfileIndex }: IndexedNmredataMolecule,
@@ -120,7 +120,8 @@ export function* assignedProductionAtoms(
 ): Generator<{ nucleus: NmrNucleus; atom: number; shift: number }> {
   const classByAtom = {
     "13C": indexProductionClasses(context.carbonClasses),
-    "1H": indexProductionClasses(context.protonClasses)
+    "1H": indexProductionClasses(context.protonClasses),
+    "31P": indexProductionClasses(context.phosphorusClasses)
   };
   for (const assignment of record.assignments) {
     const { label, shift } = assignment;
@@ -136,7 +137,7 @@ export function* assignedProductionAtoms(
       if (mapped === undefined) continue;
       const atom = productionCodeAtom(molecule, nucleus, mapped);
       if (atom < 0) continue;
-      const observation = nucleus === "31P" ? atom : classByAtom[nucleus].get(atom);
+      const observation = classByAtom[nucleus].get(atom);
       if (observation === undefined || seen.has(observation)) continue;
       seen.add(observation);
       yield { nucleus, atom, shift };
@@ -156,22 +157,28 @@ function indexProductionClasses(classes: readonly (readonly number[])[]): Readon
  * The single source of production environment codes, deepest first. Database ingestion keys every
  * assigned atom with exactly these codes and lookup queries exactly these codes, so both sides see
  * the same class representative, canonical molecule and canonical index. Codes are cached per class
- * representative on the context, so symmetric atoms and repeated assignments reuse one computation.
+ * representative and code format. A phosphorus atom can also host a ¹H environment.
  */
-export function productionEnvironmentCodes(context: ProductionLookupContext, atom: number): readonly string[] {
+export function productionEnvironmentCodes(
+  context: ProductionLookupContext,
+  nucleus: NmrNucleus,
+  atom: number
+): readonly string[] {
   const representativeAtom = context._representativeByAtom[atom];
   if (representativeAtom === undefined) {
     throw new Error(`Atom ${atom} is not present in the prepared production lookup molecule.`);
   }
 
-  let codes = context._codesByRepresentative.get(representativeAtom);
+  const includeNeighborCharges = nucleus === "31P";
+  const cacheKey = `${representativeAtom}:${includeNeighborCharges}`;
+  let codes = context._codesByRepresentative.get(cacheKey);
   if (!codes) {
     const canonicalAtom = context._inputToCanonical[representativeAtom];
     if (canonicalAtom === undefined) {
       throw new Error(`Atom ${representativeAtom} has no OCL canonical index.`);
     }
-    codes = atomEnvironmentCodes(context._canonicalMolecule, canonicalAtom, context.maxSpheres);
-    context._codesByRepresentative.set(representativeAtom, codes);
+    codes = atomEnvironmentCodes(context._canonicalMolecule, canonicalAtom, context.maxSpheres, includeNeighborCharges);
+    context._codesByRepresentative.set(cacheKey, codes);
   }
   return codes;
 }
@@ -186,7 +193,7 @@ export function lookupProductionEnvironment(
   nucleus: NmrNucleus,
   atom: number
 ): ProductionLookupResult {
-  const codes = productionEnvironmentCodes(context, atom);
+  const codes = productionEnvironmentCodes(context, nucleus, atom);
   const representativeAtom = context._representativeByAtom[atom];
   for (const code of codes) {
     const entry = database.entries[environmentKey(nucleus, code)];

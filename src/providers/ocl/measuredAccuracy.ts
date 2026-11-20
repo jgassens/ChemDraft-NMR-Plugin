@@ -89,16 +89,16 @@ export const PHOSPHORUS_MEASURED_ACCURACY: PhosphorusMeasuredAccuracy = {
   nuclei: {
     "31P": {
       assigned: 5577,
-      matched: 5292,
-      coverage: 0.949,
+      matched: 5278,
+      coverage: 0.946,
       structures: 5189,
-      hose: { count: 5292, mae: 7.599, medianAe: 2.27, p90Ae: 17.6, rmse: 19.857 },
+      hose: { count: 5278, mae: 7.565, medianAe: 2.23, p90Ae: 17.5, rmse: 20.002 },
       byTier: {
-        high: { count: 887, mae: 1.725, medianAe: 0.93, p90Ae: 3.52, rmse: 3.418 },
-        medium: { count: 1697, mae: 4.903, medianAe: 1.56, p90Ae: 8.24, rmse: 18.024 },
-        low: { count: 2708, mae: 11.213, medianAe: 4.3, p90Ae: 27.5, rmse: 23.731 }
+        high: { count: 886, mae: 1.727, medianAe: 0.93, p90Ae: 3.52, rmse: 3.42 },
+        medium: { count: 1700, mae: 4.92, medianAe: 1.58, p90Ae: 8.24, rmse: 18.025 },
+        low: { count: 2692, mae: 11.158, medianAe: 4.2, p90Ae: 27.5, rmse: 23.987 }
       }
     }
   },
-  bootstrap95: { mae: [6.33, 8.903], rmse: [15.774, 23.517] }
+  bootstrap95: { mae: [6.309, 8.86], rmse: [16.097, 23.623] }
 };

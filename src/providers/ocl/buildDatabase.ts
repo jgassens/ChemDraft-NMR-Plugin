@@ -63,7 +63,7 @@ export function buildNmrDatabaseFromRecords(
 
     let usedStructure = false;
     for (const { nucleus, atom, shift } of assignedProductionAtoms(record, parsed, lookupContext, options.nuclei)) {
-      for (const code of productionEnvironmentCodes(lookupContext, atom)) {
+      for (const code of productionEnvironmentCodes(lookupContext, nucleus, atom)) {
         const key = environmentKey(nucleus, code);
         const bucket = buckets.get(key);
         if (bucket) {

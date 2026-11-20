@@ -229,7 +229,7 @@ describe("deuterated host molfile environments", () => {
     const hydrogenated = prepareProductionLookup(parent);
     for (let atom = 0; atom < parent.getAllAtoms(); atom += 1) {
       if (parent.getAtomicNo(atom) === 1) continue;
-      expect(productionEnvironmentCodes(deuterated, atom)).toEqual(productionEnvironmentCodes(hydrogenated, atom));
+      expect(productionEnvironmentCodes(deuterated, "1H", atom)).toEqual(productionEnvironmentCodes(hydrogenated, "1H", atom));
       for (const estimate of [estimateProtonIncrement, estimateCarbonShiftWithApplicability]) {
         expect(estimate(deuterated._shiftMolecule, deuterated._inputToShift[atom])).toEqual(estimate(parent, atom));
       }

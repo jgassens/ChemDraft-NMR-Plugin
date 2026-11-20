@@ -17,6 +17,7 @@ import { buildNmrDatabase } from "../providers/ocl/buildDatabase";
 import { parseNmredataRecords } from "../providers/ocl/nmredata";
 import { MEASURED_ACCURACY, PHOSPHORUS_MEASURED_ACCURACY } from "../providers/ocl/measuredAccuracy";
 import { OclHosePredictor } from "../providers/ocl/OclHosePredictor";
+import { prepareProductionLookup, productionEnvironmentCodes } from "../providers/ocl/productionLookup";
 import { composePredictionReport } from "../report/composePredictionReport";
 import baselines from "./fixtures/noDeuteriumOutput.json";
 
@@ -76,13 +77,75 @@ function request(value: string, nuclei: readonly NmrNucleus[] = ["31P"]): NmrPre
 }
 
 describe("31P HOSE prediction", () => {
-  it("compiles both P environments and counts equivalent P atoms as two observations", () => {
+  it("compiles distinct P environments and counts equivalent P atoms once per assignment", () => {
     const db = database(bothAssigned + equivalentAssigned);
     expect(db.provenance.nuclei).toEqual(["31P"]);
     expect(db.provenance.structureCount).toBe(2);
     const deepest = Object.values(db.entries).filter(({ sphere }) => sphere === 4);
-    expect(deepest.map(({ median, n }) => [median, n])).toEqual([[-7.5, 1], [13.5, 1], [5, 2]]);
-    expect(evaluateHeldOut(db, parseNmredataRecords(equivalentAssigned))).toHaveLength(2);
+    expect(deepest.map(({ median, n }) => [median, n])).toEqual([[-7.5, 1], [13.5, 1], [5, 1]]);
+    expect(evaluateHeldOut(db, parseNmredataRecords(equivalentAssigned))).toHaveLength(1);
+  });
+
+  it("includes a neighboring phosphorus charge at every lookup depth, with separate codes for its protons", () => {
+    const neutral = prepareProductionLookup(Molecule.fromSmiles("PP"));
+    const charged = prepareProductionLookup(Molecule.fromSmiles("P[PH2+]"));
+    const neutralProtonCodes = productionEnvironmentCodes(neutral, "1H", 0);
+    const neutralCodes = productionEnvironmentCodes(neutral, "31P", 0);
+    const chargedCodes = productionEnvironmentCodes(charged, "31P", 0);
+    expect(chargedCodes).toHaveLength(4);
+    expect(chargedCodes).toEqual(neutralCodes.map((code) => code.replace("1Pq0h2", "1Pq1h2")));
+    expect(chargedCodes.every((code) => code.includes("1Pq1h2"))).toBe(true);
+    expect(neutralProtonCodes.every((code) => code.includes("(1Ph2)"))).toBe(true);
+    expect(productionEnvironmentCodes(charged, "1H", 0)).toEqual(neutralProtonCodes);
+  });
+
+  it.each([1, 2, 3, 4])("encodes a charged oxygen at sphere %i of a hypervalent phosphorus environment", (sphere) => {
+    const prefix = `CP(=O)(C)${"C".repeat(sphere - 1)}`;
+    const neutral = prepareProductionLookup(Molecule.fromSmiles(`${prefix}[O]`));
+    const charged = prepareProductionLookup(Molecule.fromSmiles(`${prefix}[O-]`));
+    const neutralCodes = productionEnvironmentCodes(neutral, "31P", 1);
+    const chargedCodes = productionEnvironmentCodes(charged, "31P", 1);
+    expect(chargedCodes.slice(0, 5 - sphere)).toEqual(
+      neutralCodes.slice(0, 5 - sphere).map((code) => code.replace("1Oq0h0", "1Oq-1h0"))
+    );
+    expect(chargedCodes[4 - sphere]).toContain("1Oq-1h0");
+    expect(chargedCodes.slice(5 - sphere)).toEqual(neutralCodes.slice(5 - sphere));
+  });
+
+  it("keeps statistics separate for neutral and charged P(V) substituents and preserves P=O and P=S bonds", async () => {
+    const examples = [
+      { smiles: "CP(=O)(C)[O]", shift: 1, doubleBond: "2Oq0h0" },
+      { smiles: "CP(=O)(C)[O-]", shift: 10, doubleBond: "2Oq0h0" },
+      { smiles: "CP(=S)(C)[O-]", shift: 20, doubleBond: "2Sq0h0" }
+    ];
+    const db = database(examples.map(({ smiles, shift }) =>
+      sdf(Molecule.fromSmiles(smiles).toMolfile(), `P2, ${shift}, 2`, `${shift}, L=P2`)
+    ).join(""));
+    for (const sphere of [1, 2, 3, 4]) {
+      const entries = Object.values(db.entries).filter((entry) => entry.sphere === sphere);
+      expect(entries.map(({ median, n }) => [median, n])).toEqual([[1, 1], [10, 1], [20, 1]]);
+    }
+    const predictor = new OclHosePredictor({ phosphorusDatabase: db });
+    for (const { smiles, shift, doubleBond } of examples) {
+      const result = await predictor.predict(request(smiles));
+      expect(result.resonances).toMatchObject([{
+        nucleus: "31P", deltaPpm: shift,
+        evidence: { matchedSphere: 4, sampleCount: 1, environmentCode: expect.stringContaining(doubleBond) }
+      }]);
+    }
+  });
+
+  it("reports one resonance for a symmetry-equivalent pair of phosphorus atoms", async () => {
+    const predictor = new OclHosePredictor({ phosphorusDatabase: database(equivalentAssigned) });
+    const result = await predictor.predict(request("PP"));
+    expect(result.resonances).toMatchObject([{
+      nucleus: "31P", deltaPpm: 5, equivalentNuclei: 2,
+      atomRefs: [
+        { sourceAtomIndex: 0, element: "P", equivalentCount: 1 },
+        { sourceAtomIndex: 1, element: "P", equivalentCount: 1 }
+      ],
+      evidence: { matchedSphere: 4, sampleCount: 1 }
+    }]);
   });
 
   it("predicts from the deepest exact match using the shared HOSE evidence", async () => {

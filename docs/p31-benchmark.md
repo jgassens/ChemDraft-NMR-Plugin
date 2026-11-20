@@ -12,18 +12,24 @@ Use median lookup from the deepest available match (spheres 4 through 1), retain
 
 Partition **held-out source references, 10%, molecule-deduplicated**. The 43,317-entry corpus yielded 5,189 held-out structures across 758 source groups. After dropping 1,074 training entries with a held-out structure identity, 37,054 training entries remained.
 
-The lookup matched 5,292 of 5,577 assigned phosphorus atoms, for coverage of 0.949.
+In **held-out source references, 10%, molecule-deduplicated**, the lookup matched 5,278 of 5,577 phosphorus observations, for coverage of 0.946. Each assignment contributes one observation per listed phosphorus symmetry class.
+
+Match errors for **held-out source references, 10%, molecule-deduplicated**.
 
 | Match tier | Matched | MAE (ppm) | RMSE (ppm) | Median AE (ppm) | P90 AE (ppm) |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| All | 5292 | 7.599 | 19.857 | 2.27 | 17.6 |
-| High | 887 | 1.725 | 3.418 | 0.93 | 3.52 |
-| Medium | 1697 | 4.903 | 18.024 | 1.56 | 8.24 |
-| Low | 2708 | 11.213 | 23.731 | 4.3 | 27.5 |
+| All | 5278 | 7.565 | 20.002 | 2.23 | 17.5 |
+| High | 886 | 1.727 | 3.42 | 0.93 | 3.52 |
+| Medium | 1700 | 4.92 | 18.025 | 1.58 | 8.24 |
+| Low | 2692 | 11.158 | 23.987 | 4.2 | 27.5 |
 
-The source-group bootstrap 95% intervals are [6.33, 8.903] ppm for MAE and [15.774, 23.517] ppm for RMSE.
+The source-group bootstrap 95% intervals for **held-out source references, 10%, molecule-deduplicated** are [6.309, 8.86] ppm for MAE and [16.097, 23.623] ppm for RMSE.
 
 Hack et al. (2023) reported HOSE MAE 11.9 ppm and RMSE 27.1 ppm using a different split. The figures are not directly comparable. [Hack et al. (2023)](https://doi.org/10.1186/s13321-023-00792-y)
+
+### Changes after review
+
+The previous run on **held-out source references, 10%, molecule-deduplicated** reported coverage of 0.949, MAE of 7.599 ppm, and RMSE of 19.857 ppm. Code review found two correctness defects. The rerun encodes phosphorus neighbor charges and counts each phosphorus symmetry class once per assignment, using the same pre-registered split and lookup settings.
 
 ## Reproduce
 
@@ -40,7 +46,7 @@ node --import tsx scripts/build-database.ts "$ILM_P31/SDFs" \
 
 The scripts hash the exact bytes in byte-sorted filename order and insert a `$$$$` terminator or linefeed where one is missing. The pinned files are already terminated. Parsing realigns over-width V2000 atom fields in memory. On OpenChemLib stereo perception failure for a V2000 record with no property records, parsing retries without stereo coordinates and preserves the atom and bond records. The hash covers the original bytes.
 
-For local predictions, read the generated JSON and pass the compiled table as `new OclHosePredictor({ phosphorusDatabase })`. Request `nuclei: ["31P"]`. The worker handler also accepts a `createPredictor` factory that can supply the table. The table lives in gitignored `local-data/` and stays outside the installable package.
+Rebuild any local ³¹P table generated before the review fixes to pick up the revised environment codes. For local predictions, read the generated JSON and pass the compiled table as `new OclHosePredictor({ phosphorusDatabase })`. Request `nuclei: ["31P"]`. The worker handler also accepts a `createPredictor` factory that can supply the table. The table lives in gitignored `local-data/` and stays outside the installable package.
 
 ## Data license (pending owner decision)
 

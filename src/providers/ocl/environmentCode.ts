@@ -25,10 +25,15 @@ export function sphereDepthOf(code: string): number {
  * `productionEnvironmentCodes` (productionLookup.ts), which applies it to an explicit-H-stripped,
  * OCL-canonical copy at the canonical index of the atom's symmetry-class representative.
  */
-export function atomEnvironmentCodes(molecule: OCL.Molecule, atom: number, maxSpheres = MAX_SPHERES): string[] {
+export function atomEnvironmentCodes(
+  molecule: OCL.Molecule,
+  atom: number,
+  maxSpheres = MAX_SPHERES,
+  includeNeighborCharges = false
+): string[] {
   const codes: string[] = [];
   for (let spheres = maxSpheres; spheres >= 1; spheres -= 1) {
-    codes.push(describeAtomEnvironment(molecule, atom, spheres).environmentCode);
+    codes.push(describeAtomEnvironment(molecule, atom, spheres, includeNeighborCharges).environmentCode);
   }
   return codes;
 }

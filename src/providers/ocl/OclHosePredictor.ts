@@ -291,16 +291,18 @@ function predictPhosphorus(
   warnings: NmrPredictionWarning[]
 ): number {
   let omitted = 0;
-  for (const atom of lookupContext.phosphorusAtoms) {
-    const { match, codes } = lookupProductionEnvironment(database, lookupContext, "31P", atom);
+  for (const atoms of lookupContext.phosphorusClasses) {
+    const { match, codes } = lookupProductionEnvironment(database, lookupContext, "31P", atoms[0]);
     if (match) {
-      resonances.push(buildResonance("31P", match, statistic, [atom], 1, [{ element: "P", count: 1 }], warnings));
+      resonances.push(buildResonance(
+        "31P", match, statistic, atoms, atoms.length, atoms.map(() => ({ element: "P", count: 1 })), warnings
+      ));
     } else {
-      omitted += 1;
+      omitted += atoms.length;
       warnings.push(nmrWarning(
         NmrWarningCodes.NoFragmentMatch,
-        `No 31P database match for atom ${atom}; the resonance was omitted.`,
-        { atomIndices: [atom], details: { nucleus: "31P", environmentCode: codes[0] } }
+        `No 31P database match for atom${atoms.length === 1 ? "" : "s"} ${atoms.join(", ")}; the resonance was omitted.`,
+        { atomIndices: [...atoms], details: { nucleus: "31P", environmentCode: codes[0] } }
       ));
     }
   }
