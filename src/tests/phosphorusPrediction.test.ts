@@ -14,6 +14,7 @@ import {
   splitCorpusBySourceReference
 } from "../providers/ocl/benchmark";
 import { buildNmrDatabase } from "../providers/ocl/buildDatabase";
+import type { CompiledNmrDatabase } from "../providers/ocl/localDatabase";
 import { parseNmredataRecords } from "../providers/ocl/nmredata";
 import { MEASURED_ACCURACY, PHOSPHORUS_MEASURED_ACCURACY } from "../providers/ocl/measuredAccuracy";
 import { OclHosePredictor } from "../providers/ocl/OclHosePredictor";
@@ -66,6 +67,15 @@ const oneAssigned = sdf(twoPhosphorus, "P1, -7.5, 1", "-7.5, L=P1");
 const bothAssigned = sdf(twoPhosphorus, "P1, -7.5, 1\nP3, 13.5, 3", "-7.5, L=P1\n13.5, L=P3");
 const equivalentAssigned = sdf(equivalentPhosphorus, "P1, 5, 1 2", "5, L=P1");
 const provenance = { name: "synthetic", version: "1", source: "synthetic", license: "synthetic", attribution: "synthetic", note: "synthetic" };
+const stereoMergedPhosphorusDatabase: CompiledNmrDatabase = {
+  provenance: { ...provenance, nuclei: ["31P"], structureCount: 1, entryCount: 1, generatedAt: "t" },
+  entries: {
+    // Synthetic shift for the phosphorus environment in PC(P)=CCO.
+    "31P@Pq0h2(1Cq0h0)(1Pq0h2,2Cq0h1)(1Cq0h2)(1Oq0h1)": {
+      nucleus: "31P", sphere: 4, n: 3, median: 5, mean: 5, stdev: 0, min: 5, max: 5
+    }
+  }
+};
 const options = { statistic: "median" as const, hoseLevels: [4, 3, 2, 1], ignoreLabileHydrogens: true };
 
 function database(raw: string, inputSha256?: string) {
@@ -135,7 +145,7 @@ describe("31P HOSE prediction", () => {
     }
   });
 
-  it("reports one resonance for a symmetry-equivalent pair of phosphorus atoms", async () => {
+  it("reports one resonance without a stereo warning for a symmetry-equivalent pair of phosphorus atoms", async () => {
     const predictor = new OclHosePredictor({ phosphorusDatabase: database(equivalentAssigned) });
     const result = await predictor.predict(request("PP"));
     expect(result.resonances).toMatchObject([{
@@ -146,6 +156,24 @@ describe("31P HOSE prediction", () => {
       ],
       evidence: { matchedSphere: 4, sampleCount: 1 }
     }]);
+    expect(result.warnings.map(({ code }) => code)).not.toContain(NmrWarningCodes.StereoNonequivalentMerged);
+  });
+
+  it("discloses stereochemically distinct phosphorus atoms in a merged resonance", async () => {
+    const predictor = new OclHosePredictor({ phosphorusDatabase: stereoMergedPhosphorusDatabase });
+    const result = await predictor.predict(request("PC(P)=CCO"));
+    expect(result.resonances).toMatchObject([{
+      nucleus: "31P", deltaPpm: 5, equivalentNuclei: 2,
+      atomRefs: [
+        { sourceAtomIndex: 0, element: "P", equivalentCount: 1 },
+        { sourceAtomIndex: 2, element: "P", equivalentCount: 1 }
+      ]
+    }]);
+    expect(result.warnings).toContainEqual(expect.objectContaining({
+      code: NmrWarningCodes.StereoNonequivalentMerged,
+      atomIndices: [0, 2],
+      details: { nucleus: "31P", mergedClassCount: 1 }
+    }));
   });
 
   it("predicts from the deepest exact match using the shared HOSE evidence", async () => {

@@ -138,43 +138,45 @@ export class OclHosePredictor implements NmrPredictor {
 
     for (const nucleus of nuclei) {
       throwIfAborted(signal);
-      if (nucleus === "31P") {
-        if (this.phosphorusDatabase) {
-          omittedPhosphorus = predictPhosphorus(
-            this.phosphorusDatabase, lookupContext, request.options.statistic, resonances, warnings
-          );
-        } else {
-          warnings.push(nmrWarning(NmrWarningCodes.PhosphorusDatabaseNotInstalled, "31P database not installed"));
-        }
-        continue;
-      }
       const resonanceStart = resonances.length;
-      const counts =
-        nucleus === "13C"
-          ? predictCarbon(
-              this.database,
-              molecule,
-              lookupContext,
-              request.options.statistic,
-              resonances,
-              warnings
-            )
-          : predictProton(
-              this.database,
-              molecule,
-              lookupContext,
-              request,
-              resonances,
-              warnings,
-              hydrogenDiastereotopy
-            );
-      totals.estimated += counts.estimated;
-      totals.omitted += counts.omitted;
+      if (nucleus === "31P") {
+        if (!this.phosphorusDatabase) {
+          warnings.push(nmrWarning(NmrWarningCodes.PhosphorusDatabaseNotInstalled, "31P database not installed"));
+          continue;
+        }
+        omittedPhosphorus = predictPhosphorus(
+          this.phosphorusDatabase, lookupContext, request.options.statistic, resonances, warnings
+        );
+      } else {
+        const counts =
+          nucleus === "13C"
+            ? predictCarbon(
+                this.database,
+                molecule,
+                lookupContext,
+                request.options.statistic,
+                resonances,
+                warnings
+              )
+            : predictProton(
+                this.database,
+                molecule,
+                lookupContext,
+                request,
+                resonances,
+                warnings,
+                hydrogenDiastereotopy
+              );
+        totals.estimated += counts.estimated;
+        totals.omitted += counts.omitted;
+      }
       const nucleusResonances = resonances.slice(resonanceStart);
       const specificallyWarnedMethylAtoms =
-        runDisclosureCheck(warnings, "potentially diastereotopic methyl", () =>
-          warnPotentiallyDiastereotopicMethyls(molecule, nucleus, nucleusResonances, warnings)
-        ) ?? new Set<number>();
+        nucleus === "31P"
+          ? new Set<number>()
+          : runDisclosureCheck(warnings, "potentially diastereotopic methyl", () =>
+              warnPotentiallyDiastereotopicMethyls(molecule, nucleus, nucleusResonances, warnings)
+            ) ?? new Set<number>();
       if (
         !heavyAtomDiastereotopyAttempted &&
         nucleusResonances.some((resonance) => resonance.atomRefs.length > 1)
