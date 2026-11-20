@@ -22,7 +22,11 @@ import {
   splitCorpusBySourceReference,
   splitCorpusByStructure
 } from "../src/providers/ocl/benchmark";
-import { buildNmrDatabase, buildNmrDatabaseFromRecords } from "../src/providers/ocl/buildDatabase";
+import {
+  buildNmrDatabase,
+  buildNmrDatabaseFromRecords,
+  PRODUCTION_MIN_OBSERVATIONS
+} from "../src/providers/ocl/buildDatabase";
 import { parseNmredataRecord, parseNmredataRecords } from "../src/providers/ocl/nmredata";
 import { ILM_P31_PROVENANCE, readIlmP31Metadata, readSdfDirectory } from "./ilm-nmr-p31";
 
@@ -40,7 +44,7 @@ const minObservationsFlag = flagValue(args, "--min-observations");
 const metadataPath = flagValue(args, "--metadata");
 const holdOutPerMille = Number(holdOutFlag ?? 20);
 const seed = Number(seedFlag ?? 1);
-const minObservations = Number(minObservationsFlag ?? 5);
+const minObservations = Number(minObservationsFlag ?? PRODUCTION_MIN_OBSERVATIONS);
 const statistic = (flagValue(args, "--statistic") ?? "median") as "median" | "mean";
 const jsonOut = flagValue(args, "--json");
 const [input] = args;
@@ -160,6 +164,7 @@ function runPhosphorusBenchmark(directory: string, metadataPath: string, jsonOut
   const { inputSha256, inputBytes } = corpus;
   const database = buildNmrDatabaseFromRecords(train.map(({ raw }) => raw), {
     nuclei: ["31P"],
+    minObservations: PRODUCTION_MIN_OBSERVATIONS,
     provenance: { ...ILM_P31_PROVENANCE, note: "Train-only ³¹P benchmark table.", inputSha256, inputBytes }
   });
   const heldOutRecords = heldOut.flatMap(({ entry, groupKey }) => {
@@ -185,7 +190,7 @@ function runPhosphorusBenchmark(directory: string, metadataPath: string, jsonOut
       trainDatabaseStructures: database.provenance.structureCount,
       trainWithSolvent: train.filter(hasSolvent).length,
       heldOutWithSolvent: heldOut.filter(({ entry }) => hasSolvent(entry)).length,
-      minObservations: 1,
+      minObservations: database.provenance.minObservations,
       statistic: "median",
       bootstrapResamples: PHOSPHORUS_BOOTSTRAP_RESAMPLES,
       bootstrapSeed: PHOSPHORUS_BOOTSTRAP_SEED

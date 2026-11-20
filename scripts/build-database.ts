@@ -14,10 +14,12 @@
 import { createHash } from "node:crypto";
 import { readFileSync, statSync, writeFileSync } from "node:fs";
 
-import { buildNmrDatabase, buildNmrDatabaseFromRecords } from "../src/providers/ocl/buildDatabase";
+import {
+  buildNmrDatabase,
+  buildNmrDatabaseFromRecords,
+  PRODUCTION_MIN_OBSERVATIONS
+} from "../src/providers/ocl/buildDatabase";
 import { ILM_P31_PROVENANCE, readSdfDirectory } from "./ilm-nmr-p31";
-
-const DEFAULT_MIN_OBSERVATIONS = 5;
 
 const args = process.argv.slice(2);
 const flagIndex = args.indexOf("--min-observations");
@@ -27,7 +29,7 @@ if (flagIndex >= 0) {
   args.splice(flagIndex, 2);
 }
 const [input, output] = args;
-minObservations ??= DEFAULT_MIN_OBSERVATIONS;
+minObservations ??= PRODUCTION_MIN_OBSERVATIONS;
 if (!input || !output || !Number.isInteger(minObservations) || minObservations < 1) {
   console.error("usage: build-database <input.sd|31P-SDF-directory> <output.json> [--min-observations N>=1]");
   process.exit(1);

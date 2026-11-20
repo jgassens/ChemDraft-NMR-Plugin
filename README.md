@@ -184,18 +184,17 @@ aggregated statistics built from the full pinned corpus and keeps environments
 with at least five observations.
 
 In the benchmark partition **held-out source references, 10%, molecule-deduplicated**,
-the lookup matched 5,278 of 5,577 phosphorus observations (94.6%). The matched predictions had an
-MAE of 7.565 ppm, an RMSE of 20.002 ppm, and a median absolute error of 2.23 ppm.
-The benchmark used a training-only table that retained all observed environments.
+the lookup matched 4,812 of 5,577 phosphorus observations (86.3%). The matched predictions had an
+MAE of 6.817 ppm, an RMSE of 18.357 ppm, and a median absolute error of 2.335 ppm.
+The benchmark training table used the same five-observation cutoff as the bundled table.
 The panel displays those benchmark measurements when the table's corpus checksum
 matches. [Benchmark protocol and results](docs/p31-benchmark.md)
 
 Confidence tiers describe match depth and reference population. With the bundled
 table, high means sphere 3 or 4 with at least eight observations, low means a
-sphere 1 match, and medium covers the other matches. In the held-out benchmark,
-median absolute errors were 0.93, 1.58, and 4.20 ppm for high, medium, and low tiers,
-respectively. These values summarize match groups. Individual shifts can have much
-larger errors.
+sphere 1 match, and medium covers the other matches. In **held-out source references, 10%, molecule-deduplicated**,
+median absolute errors were 0.96, 1.55, and 7.8 ppm for high, medium, and low tiers,
+respectively. Individual shifts can have much larger errors.
 
 Unmatched phosphorus sites are omitted with a warning. If the predictor is run
 without a ³¹P table, it declines with `NMR_PHOSPHORUS_DATABASE_NOT_INSTALLED`.

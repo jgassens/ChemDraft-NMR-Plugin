@@ -1,4 +1,9 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Molecule } from "openchemlib";
 import { describe, expect, it } from "vitest";
 
@@ -14,6 +19,7 @@ import {
   splitCorpusBySourceReference
 } from "../providers/ocl/benchmark";
 import { buildNmrDatabase } from "../providers/ocl/buildDatabase";
+import bundledPhosphorusDatabase from "../providers/ocl/ilm-nmr-p31.database.json";
 import type { CompiledNmrDatabase } from "../providers/ocl/localDatabase";
 import { parseNmredataRecords } from "../providers/ocl/nmredata";
 import { MEASURED_ACCURACY, PHOSPHORUS_MEASURED_ACCURACY } from "../providers/ocl/measuredAccuracy";
@@ -261,7 +267,47 @@ describe("31P HOSE prediction", () => {
   });
 });
 
-describe("31P benchmark partition", () => {
+describe("31P benchmark", () => {
+  it("prunes the training table at the same five-observation cutoff as the production build", () => {
+    const root = mkdtempSync(join(tmpdir(), "nmr-p31-benchmark-"));
+    const runScript = (script: string, ...args: string[]) => execFileSync(
+      process.execPath,
+      ["--import", "tsx", script, ...args],
+      { cwd: fileURLToPath(new URL("../../", import.meta.url)), encoding: "utf8" }
+    );
+    try {
+      const directory = join(root, "SDFs");
+      mkdirSync(directory);
+      const metadata = ['"num" "ref" "LM"'];
+      const trainingRecords = [...Array<string>(5).fill(equivalentAssigned), ...Array<string>(4).fill(oneAssigned)];
+      for (const [index, raw] of trainingRecords.entries()) {
+        const stem = `train-CMP${index + 1}`;
+        writeFileSync(join(directory, `${stem}.sdf`), raw);
+        metadata.push(`${index + 1} "${stem}" "ref 0" "NA"`);
+      }
+
+      const production = JSON.parse(runScript("scripts/build-database.ts", directory, join(root, "production.json")));
+      expect(production.minObservations).toBe(5);
+      expect(production.minObservations).toBe(bundledPhosphorusDatabase.provenance.minObservations);
+      expect(production.entryCount).toBe(4);
+      expect(production.rawEntryCount).toBe(8);
+
+      const heldOut = sdf(stereochemicalPhosphorus, "P2, 10, 2", "10, L=P2");
+      writeFileSync(join(directory, "test-CMP1.sdf"), heldOut);
+      const metadataPath = join(root, "metadata.csv");
+      writeFileSync(metadataPath, [...metadata, '10 "test-CMP1" "ref 3" "NA"'].join("\n"));
+      const benchmark = JSON.parse(runScript("scripts/run-benchmark.ts", directory, "--metadata", metadataPath));
+      expect(benchmark.protocol).toMatchObject({
+        train: 9,
+        heldOut: 1,
+        minObservations: production.minObservations,
+        trainDatabaseEntries: production.entryCount
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("normalizes references, falls back to the entry stem, and hashes deterministically", () => {
     expect(sourceReferenceKey("other-CMP1", "\t REF\n  3 ")).toBe("ref 3");
     expect(sourceReferenceKey("example-CMP4", " NA ")).toBe("stem:example");

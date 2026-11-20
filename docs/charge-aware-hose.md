@@ -36,7 +36,7 @@ Coverage 99.4% → 99.3% (7,234 → 7,227 of 7,280 assignments across 795 struct
 
 ### ³¹P
 
-The published ³¹P results are from **held-out source references, 10%, molecule-deduplicated**. Coverage is 94.6% (5,278/5,577 assignments). [³¹P benchmark protocol](p31-benchmark.md)
+This comparison records the charge-aware encoder change using the original unpruned ³¹P training table and **held-out source references, 10%, molecule-deduplicated**. Coverage was 94.6% (5,278/5,577 assignments). [Current ³¹P benchmark with the production cutoff](p31-benchmark.md)
 
 | Match tier | Matched | MAE (ppm) | Median AE (ppm) | P90 AE (ppm) |
 | --- | ---: | ---: | ---: | ---: |

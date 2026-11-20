@@ -10,6 +10,8 @@ import {
   type ProductionLookupContext
 } from "./productionLookup";
 
+export const PRODUCTION_MIN_OBSERVATIONS = 5;
+
 export interface BuildDatabaseOptions {
   provenance: Omit<
     NmrDatabaseProvenance,
