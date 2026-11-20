@@ -162,6 +162,19 @@ all shifts have database matches. Other isotope labels retain the existing refus
 See [deuterated environment matching](docs/deuterated-environments.md) for examples
 and the warning range.
 
+## ¹H and ¹³C accuracy
+
+The ¹H and ¹³C lookup keys account for neighbor formal charges at every HOSE
+sphere. In the held-out NMRShiftDB2 benchmark (OpenChemLib structure-idcode
+split, seed 1, 20 per 1,000 buckets), the median lookup had the following results.
+
+| Nucleus | Coverage | MAE (ppm) | Median AE (ppm) | P90 AE (ppm) |
+| --- | ---: | ---: | ---: | ---: |
+| ¹H | 98.7% | 0.358 | 0.17 | 0.92 |
+| ¹³C | 99.3% | 3.517 | 1.56 | 8.69 |
+
+See the [benchmark partition and per-tier results](docs/charge-aware-hose.md).
+
 ## ³¹P prediction
 
 Select a phosphorus-containing structure and choose **Analyze → Predict ³¹P NMR

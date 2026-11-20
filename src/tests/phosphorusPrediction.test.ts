@@ -117,7 +117,7 @@ describe("31P HOSE prediction", () => {
     expect(evaluateHeldOut(db, parseNmredataRecords(equivalentAssigned))).toHaveLength(1);
   });
 
-  it("includes a neighboring phosphorus charge at every lookup depth, with separate codes for its protons", () => {
+  it("includes a neighboring phosphorus charge at every lookup depth for 31P and 1H", () => {
     const neutral = prepareProductionLookup(Molecule.fromSmiles("PP"));
     const charged = prepareProductionLookup(Molecule.fromSmiles("P[PH2+]"));
     const neutralProtonCodes = productionEnvironmentCodes(neutral, "1H", 0);
@@ -127,7 +127,7 @@ describe("31P HOSE prediction", () => {
     expect(chargedCodes).toEqual(neutralCodes.map((code) => code.replace("1Pq0h2", "1Pq1h2")));
     expect(chargedCodes.every((code) => code.includes("1Pq1h2"))).toBe(true);
     expect(neutralProtonCodes.every((code) => code.includes("(1Ph2)"))).toBe(true);
-    expect(productionEnvironmentCodes(charged, "1H", 0)).toEqual(neutralProtonCodes);
+    expect(productionEnvironmentCodes(charged, "1H", 0)).toEqual(chargedCodes);
   });
 
   it.each([1, 2, 3, 4])("encodes a charged oxygen at sphere %i of a hypervalent phosphorus environment", (sphere) => {

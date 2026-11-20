@@ -169,15 +169,16 @@ export function productionEnvironmentCodes(
     throw new Error(`Atom ${atom} is not present in the prepared production lookup molecule.`);
   }
 
-  const includeNeighborCharges = nucleus === "31P";
-  const cacheKey = `${representativeAtom}:${includeNeighborCharges}`;
+  // The existing ³¹P table writes q0 explicitly. For ¹H and ¹³C, an omitted charge means zero.
+  const includeZeroNeighborCharges = nucleus === "31P";
+  const cacheKey = `${representativeAtom}:${includeZeroNeighborCharges}`;
   let codes = context._codesByRepresentative.get(cacheKey);
   if (!codes) {
     const canonicalAtom = context._inputToCanonical[representativeAtom];
     if (canonicalAtom === undefined) {
       throw new Error(`Atom ${representativeAtom} has no OCL canonical index.`);
     }
-    codes = atomEnvironmentCodes(context._canonicalMolecule, canonicalAtom, context.maxSpheres, includeNeighborCharges);
+    codes = atomEnvironmentCodes(context._canonicalMolecule, canonicalAtom, context.maxSpheres, includeZeroNeighborCharges);
     context._codesByRepresentative.set(cacheKey, codes);
   }
   return codes;

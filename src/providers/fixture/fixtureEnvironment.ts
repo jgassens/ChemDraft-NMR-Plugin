@@ -3,7 +3,8 @@ import * as OCL from "openchemlib";
 /**
  * Deterministic atom-centered environment code via a breadth-first walk to `spheres` depth. Each
  * sphere contributes a sorted, bracketed list of neighbor descriptors
- * (`<bondOrder><element><aromatic?>[q<charge>]h<hCount>`). Neighbor charge is included for ³¹P lookup.
+ * (`<bondOrder><element><aromatic?>[q<charge>]h<hCount>`). An omitted neighbor charge means zero.
+ * ³¹P lookup spells out zero charges to preserve its existing database keys.
  * Ring-closure bonds back to an already-seen atom other than the walk parent distinguish ring atoms
  * from equivalent-looking chain atoms. The fixture provider uses this heuristic with the
  * "fixture-fragment" method label and collapses atoms with matching codes into one resonance.
@@ -31,7 +32,7 @@ export function describeAtomEnvironment(
   molecule: OCL.Molecule,
   atom: number,
   spheres = 2,
-  includeNeighborCharges = false
+  includeZeroNeighborCharges = false
 ): AtomEnvironment {
   const atomicNumber = molecule.getAtomicNo(atom);
   const aromatic = molecule.isAromaticAtom(atom);
@@ -56,9 +57,10 @@ export function describeAtomEnvironment(
         const bond = molecule.getConnBond(current, index);
         const order = molecule.isAromaticBond(bond) ? "~" : String(molecule.getConnBondOrder(current, index));
         const neighborAromatic = molecule.isAromaticAtom(neighbor) ? "a" : "";
-        const neighborCharge = includeNeighborCharges ? `q${molecule.getAtomCharge(neighbor)}` : "";
+        const neighborCharge = molecule.getAtomCharge(neighbor);
+        const chargeLabel = neighborCharge !== 0 || includeZeroNeighborCharges ? `q${neighborCharge}` : "";
         descriptors.push(
-          `${order}${elementSymbol(molecule.getAtomicNo(neighbor))}${neighborAromatic}${neighborCharge}h${molecule.getAllHydrogens(neighbor)}`
+          `${order}${elementSymbol(molecule.getAtomicNo(neighbor))}${neighborAromatic}${chargeLabel}h${molecule.getAllHydrogens(neighbor)}`
         );
         if (!visited.has(neighbor)) {
           visited.add(neighbor);
