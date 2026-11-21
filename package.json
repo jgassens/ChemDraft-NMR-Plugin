@@ -1,17 +1,21 @@
 {
   "name": "@chemdraft/plugin-nmr-predictor",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "license": "MIT",
   "dataLicenses": [
     {
       "name": "NMRShiftDB2-derived HOSE shift statistics",
+      "attribution": "nmrshiftdb2 contributors, NMRShiftDB2 (nmrshiftdb2 Database License, derived from ODbL). Compiled into aggregated HOSE shift statistics by ChemDraft; no structures are included.",
+      "url": "https://sourceforge.net/projects/nmrshiftdb2/",
       "path": "src/providers/ocl/nmrshiftdb2.database.json",
       "license": "nmrshiftdb2 Database License (ODbL-derived)",
       "noticeFile": "src/providers/ocl/NMRSHIFTDB2_LICENSE.md"
     },
     {
       "name": "Ilm-NMR-P31-derived ³¹P HOSE shift statistics",
+      "attribution": "Geitner, R. (2026), Ilm-NMR-P31 v3.0, Zenodo, doi:10.5281/zenodo.20762603, CC BY 4.0 (BSD-3-Clause, copyright (c) 2026 Robert Geitner, kept for the GitHub copy). Includes data from NMRexp: Wang, J.-J. and Zhu, R. (2025), doi:10.5281/zenodo.17296666, CC BY 4.0. Filtered and transformed into aggregated HOSE shift statistics.",
+      "url": "https://doi.org/10.5281/zenodo.20762603",
       "citation": "Ilm-NMR-P31 v3.0 (Zenodo, doi:10.5281/zenodo.20762603, CC BY 4.0); Hack et al. (2023), doi:10.1186/s13321-023-00792-y",
       "repository": "https://github.com/clacor/Ilm-NMR-P31",
       "commit": "ead6f914d2bdfb60e4befea72ea503d32978d358",
@@ -33,6 +37,8 @@
     },
     {
       "name": "NMRShiftDB2-derived GNN shift model weights and training-domain counts",
+      "attribution": "nmrshiftdb2 contributors, NMRShiftDB2 (nmrshiftdb2 Database License, derived from ODbL). GNN model weights and training-domain counts fitted to NMRShiftDB2 assignments by ChemDraft; no structures are included.",
+      "url": "https://sourceforge.net/projects/nmrshiftdb2/",
       "path": "src/providers/gnn/model",
       "files": [
         "src/providers/gnn/model/1H.fp16.onnx",

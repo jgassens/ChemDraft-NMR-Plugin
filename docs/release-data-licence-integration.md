@@ -13,6 +13,11 @@ and each declared `noticeFile` must exist. The optional `path` records the sourc
 artifact the declaration covers. The explicit declarations cover JSON artifacts
 outside the data directories detected by the host's `findBundledDataPaths` heuristic.
 
+Every entry also carries two optional display fields: `attribution`, the exact credit
+line a user should see (authors, title, year, license), and `url`, one https link to the
+dataset's DOI or homepage. `src/tests/dataLicense.test.ts` requires both on every entry.
+The packager copies `package.json` unchanged, so the fields ship in the ZIP.
+
 The vendored SDK's strict `PluginManifest` schema governs `src/manifest.ts`.
 The data license declarations live in the package metadata.
 

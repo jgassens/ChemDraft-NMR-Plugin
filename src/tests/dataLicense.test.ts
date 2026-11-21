@@ -47,7 +47,7 @@ function expectPackagedNotices(zipPath: string): void {
 describe("bundled database licenses", () => {
   it("declares every bundled data asset in package metadata separately from MIT code", () => {
     expect(packageJson.license).toBe("MIT");
-    expect(packageJson.dataLicenses).toEqual([
+    expect(packageJson.dataLicenses.map(({ attribution: _attribution, url: _url, ...rest }) => rest)).toEqual([
       {
         name: "NMRShiftDB2-derived HOSE shift statistics",
         path: datasetPath,
@@ -107,6 +107,21 @@ describe("bundled database licenses", () => {
     const phosphorusEntry = packageJson.dataLicenses.find((entry) => entry.path === phosphorusDatasetPath)!;
     expect(phosphorusEntry.license).toContain("CC-BY-4.0");
     expect(phosphorusEntry.license).not.toBe("BSD-3-Clause");
+  });
+
+  it("gives every data license entry a credit line and an https link", () => {
+    expect(packageJson.dataLicenses.length).toBeGreaterThan(0);
+    for (const entry of packageJson.dataLicenses as { name: string; attribution?: unknown; url?: unknown }[]) {
+      expect(typeof entry.attribution, entry.name).toBe("string");
+      expect((entry.attribution as string).trim().length, entry.name).toBeGreaterThan(0);
+      expect(typeof entry.url, entry.name).toBe("string");
+      expect(new URL(entry.url as string).protocol, entry.name).toBe("https:");
+    }
+    const phosphorus = packageJson.dataLicenses.find((entry) => entry.path === phosphorusDatasetPath)!;
+    expect(phosphorus.attribution).toContain("Geitner");
+    expect(phosphorus.attribution).toContain("10.5281/zenodo.20762603");
+    expect(phosphorus.attribution).toContain("10.5281/zenodo.17296666");
+    expect(phosphorus.attribution).toContain("CC BY 4.0");
   });
 
   it("ships declared notices and package metadata in the zip with an updated checksum", () => {
