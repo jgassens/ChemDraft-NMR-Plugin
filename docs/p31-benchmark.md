@@ -55,9 +55,11 @@ The scripts hash the exact bytes in byte-sorted filename order and insert a `$$$
 
 ## Data license
 
-- **Name and path** Ilm-NMR-P31-derived ³¹P HOSE shift statistics, `src/providers/ocl/ilm-nmr-p31.database.json`. The table contains aggregated statistics only. [Hack et al. (2023)](https://doi.org/10.1186/s13321-023-00792-y)
+- **Name and path** Ilm-NMR-P31 v3.0-derived ³¹P HOSE shift statistics, `src/providers/ocl/ilm-nmr-p31.database.json`. The table contains aggregated statistics only. [Hack et al. (2023)](https://doi.org/10.1186/s13321-023-00792-y)
 - **Source** `clacor/Ilm-NMR-P31` at commit `ead6f914d2bdfb60e4befea72ea503d32978d358`. [Pinned GitHub source](https://github.com/clacor/Ilm-NMR-P31/tree/ead6f914d2bdfb60e4befea72ea503d32978d358)
-- **License** BSD-3-Clause, copyright (c) 2026 Robert Geitner. Redistributed with the author's permission (owner, 2026-11-20). The final declaration is under `dataLicenses` in `package.json`. [Bundled license text](../src/providers/ocl/ILM_NMR_P31_LICENSE.md)
-- **Published archive** Zenodo `10.5281/zenodo.8260783` is the 2023 release of 14,250 entries under CC BY 4.0. [Versioned Zenodo record](https://doi.org/10.5281/zenodo.8260783)
+- **License** CC BY 4.0 for Ilm-NMR-P31 v3.0. The GitHub copy's own license is BSD-3-Clause, copyright (c) 2026 Robert Geitner, and that credit is kept. Redistributed with the author's permission (owner, 2026-11-20). The final declaration is under `dataLicenses` in `package.json`. [Bundled license text](../src/providers/ocl/ILM_NMR_P31_LICENSE.md)
+- **Published archive** Zenodo `10.5281/zenodo.20762603` is Ilm-NMR-P31 v3.0, published 2026-06-19 with 43,317 entries under CC BY 4.0, and the GitHub commit above is identical in content. The series concept record is `10.5281/zenodo.8260782`. [Zenodo record](https://doi.org/10.5281/zenodo.20762603)
+- **Upstream source** About 27,000 of the 43,317 entries come from NMRexp (Wang, Jun-Jie and Zhu, Rong; Zenodo `10.5281/zenodo.17296666`, CC BY 4.0). Wang, J.-J., Jin, Y., Zhi, C.-Y. et al., Scientific Data 12, 1954 (2025). [NMRexp](https://doi.org/10.5281/zenodo.17296666) · [Paper](https://doi.org/10.1038/s41597-025-06245-5)
+- **Changes** Values were filtered and transformed into aggregated HOSE statistics.
 - **Paper's data availability** Hack et al. make the underlying Ilm-NMR-P31 dataset publicly available. The publication's companion repository points readers to Zenodo for the archived data. [Hack et al. (2023)](https://doi.org/10.1186/s13321-023-00792-y) · [Publication repository](https://github.com/jcheminform/Ilm-NMR-P31)
 - **Source handbooks** The paper describes shifts transcribed from *Landolt-Boernstein* (2014) and *Handbook of ³¹P NMR Data* (1991). [Hack et al. (2023)](https://doi.org/10.1186/s13321-023-00792-y)

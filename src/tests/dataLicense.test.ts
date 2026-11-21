@@ -56,14 +56,24 @@ describe("bundled database licenses", () => {
       },
       {
         name: "Ilm-NMR-P31-derived ³¹P HOSE shift statistics",
-        citation: "Ilm-NMR-P31, Hack et al. (2023), doi:10.1186/s13321-023-00792-y",
+        citation: "Ilm-NMR-P31 v3.0 (Zenodo, doi:10.5281/zenodo.20762603, CC BY 4.0); Hack et al. (2023), doi:10.1186/s13321-023-00792-y",
         repository: "https://github.com/clacor/Ilm-NMR-P31",
         commit: "ead6f914d2bdfb60e4befea72ea503d32978d358",
         path: phosphorusDatasetPath,
-        license: "BSD-3-Clause",
-        copyright: "(c) 2026 Robert Geitner",
+        license: "CC-BY-4.0 (Ilm-NMR-P31 v3.0, doi:10.5281/zenodo.20762603); the GitHub copy's own license is BSD-3-Clause",
+        copyright: "(c) 2026 Robert Geitner (BSD-3-Clause credit for the GitHub copy)",
+        upstream: [
+          {
+            name: "NMRexp",
+            authors: "Wang, Jun-Jie; Zhu, Rong",
+            citation: "Wang, J.-J., Jin, Y., Zhi, C.-Y. et al., Scientific Data 12, 1954 (2025), doi:10.1038/s41597-025-06245-5",
+            doi: "10.5281/zenodo.17296666",
+            license: "CC-BY-4.0",
+            note: "the source of about 27,000 of the 43,317 entries in Ilm-NMR-P31 v3.0"
+          }
+        ],
         noticeFile: phosphorusNoticeFile,
-        note: "redistributed with the author's permission (owner, 2026-11-20)"
+        note: "Built from GitHub clacor/Ilm-NMR-P31 @ ead6f914, identical in content to Ilm-NMR-P31 v3.0 on Zenodo (record 20762603, doi:10.5281/zenodo.20762603, series record 8260782, published 2026-06-19, CC BY 4.0). Values were filtered and transformed into aggregated HOSE shift statistics. Redistributed with the author's permission (owner, 2026-11-20)."
       },
       {
         name: "NMRShiftDB2-derived GNN shift model weights and training-domain counts",
@@ -90,6 +100,13 @@ describe("bundled database licenses", () => {
     const phosphorusNotice = readFileSync(join(pluginRoot, phosphorusNoticeFile), "utf8");
     expect(phosphorusNotice).toContain("BSD 3-Clause License");
     expect(phosphorusNotice).toContain("Copyright (c) 2026, Robert Geitner");
+    expect(phosphorusNotice).toContain("https://creativecommons.org/licenses/by/4.0/");
+    expect(phosphorusNotice).toContain("10.5281/zenodo.20762603");
+    expect(phosphorusNotice).toContain("10.5281/zenodo.17296666");
+    expect(phosphorusNotice).toContain("Changes were made");
+    const phosphorusEntry = packageJson.dataLicenses.find((entry) => entry.path === phosphorusDatasetPath)!;
+    expect(phosphorusEntry.license).toContain("CC-BY-4.0");
+    expect(phosphorusEntry.license).not.toBe("BSD-3-Clause");
   });
 
   it("ships declared notices and package metadata in the zip with an updated checksum", () => {

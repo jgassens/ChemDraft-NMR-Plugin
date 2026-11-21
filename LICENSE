@@ -43,11 +43,18 @@ licenses.
   ZIP root and embeds the domain counts in `nmrWorker-*.js` and
   `GnnShiftPredictor-*.js`. See `src/providers/ocl/NMRSHIFTDB2_LICENSE.md`.
 
-- **Ilm-NMR-P31-derived ³¹P HOSE shift statistics** are licensed under
-  **BSD-3-Clause**, copyright (c) 2026 Robert Geitner. The source file is
+- **Ilm-NMR-P31-derived ³¹P HOSE shift statistics** are derived from Ilm-NMR-P31
+  v3.0 (Zenodo DOI 10.5281/zenodo.20762603), which is licensed under
+  **CC BY 4.0** (https://creativecommons.org/licenses/by/4.0/). About 27,000 of
+  its 43,317 entries come from NMRexp (Wang and Zhu, Zenodo DOI
+  10.5281/zenodo.17296666, **CC BY 4.0**). The values were filtered and
+  transformed into aggregated HOSE statistics. The GitHub copy the table was
+  built from carries a **BSD-3-Clause** license, copyright (c) 2026 Robert
+  Geitner, and that credit is kept; the data is redistributed with the author's
+  permission (owner, 2026-11-20). The source file is
   `src/providers/ocl/ilm-nmr-p31.database.json`. The package embeds the data in
   `nmrWorker-*.js` and `GnnShiftPredictor-*.js` at the ZIP root. See
-  `src/providers/ocl/ILM_NMR_P31_LICENSE.md` for the license text.
+  `src/providers/ocl/ILM_NMR_P31_LICENSE.md` for the attribution and license text.
 
 - **Third-party dependencies** — openchemlib (BSD-3-Clause), zod (MIT),
   onnxruntime-web 1.22.0 (MIT, Microsoft; shipped as `ort.wasm.bundle.min-*.js`,

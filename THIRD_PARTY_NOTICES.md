@@ -69,10 +69,18 @@ Two lookup providers ship, with separately-tracked data:
   It contains aggregated statistics only, no structures. Rebuild via
   `scripts/build-database.ts`.
 - **Ilm-NMR-P31-derived ³¹P HOSE shift statistics** (`src/providers/ocl/ilm-nmr-p31.database.json`)
-  — aggregated statistics from Ilm-NMR-P31, Hack et al. (2023),
-  DOI 10.1186/s13321-023-00792-y. **BSD-3-Clause**, copyright (c) 2026 Robert Geitner.
-  Redistributed with the author's permission (owner, 2026-11-20).
-  [Dataset paper](https://doi.org/10.1186/s13321-023-00792-y) · [clacor/Ilm-NMR-P31 at ead6f914d2bdfb60e4befea72ea503d32978d358](https://github.com/clacor/Ilm-NMR-P31/tree/ead6f914d2bdfb60e4befea72ea503d32978d358) · [License text](src/providers/ocl/ILM_NMR_P31_LICENSE.md)
+  — aggregated statistics from Ilm-NMR-P31 v3.0 (Zenodo,
+  DOI 10.5281/zenodo.20762603; 43,317 entries), licensed under
+  [**CC BY 4.0**](https://creativecommons.org/licenses/by/4.0/); see also
+  Hack et al. (2023), DOI 10.1186/s13321-023-00792-y. About 27,000 of those entries
+  come from NMRexp (Wang, Jun-Jie and Zhu, Rong, Zenodo DOI 10.5281/zenodo.17296666,
+  **CC BY 4.0**; Wang, J.-J., Jin, Y., Zhi, C.-Y. et al., Scientific Data 12, 1954
+  (2025), DOI 10.1038/s41597-025-06245-5). The values were filtered and transformed
+  into aggregated HOSE statistics. The table was built from the GitHub copy
+  clacor/Ilm-NMR-P31 at ead6f914, identical in content to v3.0; that copy carries a
+  **BSD-3-Clause** license, copyright (c) 2026 Robert Geitner, which is kept as
+  credit. Redistributed with the author's permission (owner, 2026-11-20).
+  [Ilm-NMR-P31 v3.0](https://doi.org/10.5281/zenodo.20762603) · [NMRexp](https://doi.org/10.5281/zenodo.17296666) · [Dataset paper](https://doi.org/10.1186/s13321-023-00792-y) · [clacor/Ilm-NMR-P31 at ead6f914d2bdfb60e4befea72ea503d32978d358](https://github.com/clacor/Ilm-NMR-P31/tree/ead6f914d2bdfb60e4befea72ea503d32978d358) · [Attribution and license text](src/providers/ocl/ILM_NMR_P31_LICENSE.md)
 
 The plugin's original **code is MIT-licensed**, as recorded in `LICENSE`. The root
 `package.json` declares the compiled data assets (both HOSE tables and the GNN

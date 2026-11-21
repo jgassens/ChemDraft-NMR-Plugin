@@ -220,7 +220,7 @@ See the [benchmark partition and per-tier results](docs/charge-aware-hose.md).
 ## ³¹P prediction
 
 Select a phosphorus-containing structure and choose **Analyze → Predict ³¹P NMR
-Shifts**. The default predictor searches the bundled Ilm-NMR-P31 HOSE table from
+Shifts**. The default predictor searches the bundled Ilm-NMR-P31 v3.0 HOSE table from
 sphere 4 down to sphere 1 and uses the median shift by default. The table contains
 aggregated statistics built from the full pinned corpus and keeps environments
 with at least five observations.
@@ -255,9 +255,14 @@ reports chemical shifts and leaves solvent effects and ³¹P splitting unmodeled
   **derivative database** of aggregated shift statistics (no structures) under the
   **nmrshiftdb2 Database License** (ODbL-derived; commercial use OK, share-alike,
   attribution) — see `src/providers/ocl/NMRSHIFTDB2_LICENSE.md`.
-- The ³¹P table is derived from Ilm-NMR-P31 (Hack et al., 2023), under
-  **BSD-3-Clause**, copyright (c) 2026 Robert Geitner. Redistributed with the
-  author's permission (owner, 2026-11-20). [Dataset paper](https://doi.org/10.1186/s13321-023-00792-y) · [License text](src/providers/ocl/ILM_NMR_P31_LICENSE.md)
+- The ³¹P table is derived from Ilm-NMR-P31 v3.0 (Zenodo,
+  [10.5281/zenodo.20762603](https://doi.org/10.5281/zenodo.20762603); Hack et al., 2023),
+  under [**CC BY 4.0**](https://creativecommons.org/licenses/by/4.0/). About 27,000 of
+  its 43,317 entries come from NMRexp (Wang and Zhu, [10.5281/zenodo.17296666](https://doi.org/10.5281/zenodo.17296666),
+  **CC BY 4.0**). Values were filtered and transformed into HOSE statistics. The GitHub
+  copy used to build the table is **BSD-3-Clause**, copyright (c) 2026 Robert Geitner;
+  that credit is kept. Redistributed with the author's permission (owner, 2026-11-20).
+  [Dataset paper](https://doi.org/10.1186/s13321-023-00792-y) · [Attribution and license text](src/providers/ocl/ILM_NMR_P31_LICENSE.md)
 - The fixture provider's values are **synthetic**, labeled as such everywhere.
 - Coverage is intentionally narrow. Applicable coarse estimates are marked partial
   and include per-resonance `source: "rule-estimate"`, estimator ID, version, and
