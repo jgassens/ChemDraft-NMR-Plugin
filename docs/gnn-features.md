@@ -61,7 +61,7 @@ All calls are `OCL.Molecule` methods on the prepared molecule, and `atom` is the
 | 29–32 | `atomCIP=none`, `R`, `S`, `unknown` | `getAtomCIPParity(atom)` and `getAtomParity(atom)`; see [Stereo features](#stereo-features) | one-hot |
 | 33–40 | `sphere{d}PositiveCharge`, `sphere{d}NegativeCharge` for d = 1…4 | `getAtomCharge` of every node at shortest-path distance d over the edges | sum of positive charges; sum of negative-charge magnitudes; integers |
 
-The ¹H/¹³C HOSE codes record the formal charge of every neighbor at every sphere up to `MAX_SPHERES` = 4 (see [charge-aware-hose.md](charge-aware-hose.md)). Features 33–40 give the model the same information, sphere by sphere. A test keeps `GNN_NEIGHBOR_CHARGE_SPHERES` equal to `MAX_SPHERES`. The positive and negative sums are kept apart, so a zwitterion's neighbors do not cancel to zero. The charge of a folded hydrogen is not represented.
+The ¹H/¹³C HOSE codes record the formal charge of every neighbor at every sphere up to `MAX_SPHERES` = 4 (see [charge-aware-hose.md](charge-aware-hose.md)). Features 33–40 are related to that information but are not equivalent to it. Each node is counted once, at its shortest-path distance from the atom, over the edges of the graph, and edges include every bond, order-0 (dative or coordination) bonds among them. The HOSE encoder walks `getConnAtoms`, which excludes order-0 bonds, and it emits ring-closure revisits. So (1) charged atoms reached only through a metal-ligand bond are placed in a sphere here but are absent or placed differently in the HOSE code, and (2) ring charges can fall in different spheres or carry different multiplicity, because HOSE revisits a ring atom and these features count it once. A test keeps `GNN_NEIGHBOR_CHARGE_SPHERES` equal to `MAX_SPHERES`. The positive and negative sums are kept apart, so a zwitterion's neighbors do not cancel to zero. The charge of a folded hydrogen is not represented.
 
 ## Bond features (11)
 
@@ -115,6 +115,7 @@ OpenChemLib's atom and bond parities depend on the indices of the neighbor atoms
 
 ## Representation caveats
 
+- **Stereo coverage is not complete.** Relative ring cis/trans configurations and undefined stereo both read `unknown`, and ESR groups are not represented, so schema 1 is not complete stereochemical coverage (see [Stereo features](#stereo-features)).
 - **No resonance normalization.** A pentavalent nitro group (`N(=O)=O`) and the charge-separated form (`[N+](=O)[O-]`) featurize differently in charge and π count, just as their HOSE codes differ. The training corpus and the runtime input must therefore use the same drawing conventions, or a later schema must normalize them.
 
 ## Canonical dump
