@@ -1,0 +1,496 @@
+/**
+ * The plugin's ¹H/¹³C predictor: the trained GNN first, the HOSE lookup as cross-check and fallback.
+ * ³¹P is HOSE-only and passes through unchanged.
+ *
+ * For each requested ¹H/¹³C constitutional class (the same classes the HOSE engine reports):
+ *
+ * 1. The GNN declines the class when ABSTENTION.md rules 1-5 decline any member atom
+ *    (`domainRules.assessNode`, a port of the experiment's evaluator). A declined class, and every
+ *    class when the model is missing, fails its checksum, fails to load or fails at inference, shows
+ *    the HOSE engine's own resonance for it, unchanged except for the label "HOSE lookup" (section 2).
+ *    With no HOSE resonance either, the class gets no shift: nothing is fabricated.
+ * 2. Otherwise the class shows the GNN value of its canonical representative atom, labeled
+ *    "GNN prediction", with tier high/medium/low from the HOSE match's sphere and the frozen
+ *    agreement band (section 3). When |GNN − HOSE| exceeds the band the GNN value is still reported,
+ *    with tier low, the warning "model and reference lookup disagree", and both values (section 4).
+ *
+ * The HOSE engine (`OclHosePredictor`) runs unmodified on the same request. Its warnings that
+ * describe a resonance the GNN replaced (thin-match notices, omissions, the rule-estimate summary) are
+ * dropped or recounted, so every remaining notice describes what is shown.
+ *
+ * The model loads lazily on the first ¹H/¹³C prediction (see `runtime.ts`).
+ */
+import type * as OCL from "openchemlib";
+
+import type {
+  NmrAtomReference,
+  NmrMultiplet,
+  NmrNucleus,
+  NmrPredictionRequest,
+  NmrPredictionResult,
+  NmrPredictor,
+  NmrPredictorCapabilities,
+  NmrReferenceLookup,
+  NmrResonance
+} from "../../domain/contracts";
+import { isRuleEstimated } from "../../domain/contracts";
+import { NmrError, NmrErrorCodes } from "../../domain/errors";
+import { nmrWarning, NmrWarningCodes, type NmrPredictionWarning } from "../../domain/warnings";
+import { normalizeStructure } from "../../application/normalizeStructure";
+import { computeMultiplet } from "../ocl/coupling";
+import { MAX_SPHERES } from "../ocl/environmentCode";
+import { protonCount } from "../ocl/hydrogenIsotopes";
+import { OclHosePredictor, type OclHosePredictorOptions } from "../ocl/OclHosePredictor";
+import { prepareProductionLookup, type ProductionLookupContext } from "../ocl/productionLookup";
+import { featurizationErrorCode } from "./canonicalDump";
+import {
+  assessNode,
+  describeNode,
+  GNN_DECLINE_RULE_DESCRIPTIONS,
+  GNN_DECLINE_RULES,
+  gnnDisagrees,
+  gnnTier,
+  type GnnDeclineRule,
+  type GnnTier,
+  type GnnTrainingDomain
+} from "./domainRules";
+import { featurizeMolecule, type GnnMoleculeFeatures } from "./featurize";
+import { GNN_AGREEMENT_BANDS, GNN_METHOD_LABEL, GNN_MODEL_RELEASE, HOSE_METHOD_LABEL, type GnnNucleus } from "./modelRelease";
+import { GnnModelRuntime, type GnnModelProvider, type GnnModelState } from "./runtime";
+import { packGnnInputs } from "./tensors";
+import { GNN_TRAINING_DOMAIN } from "./trainingDomain";
+
+export const GNN_HOSE_BACKEND_ID = "chemdraft.gnn-hose";
+/** The phrase ABSTENTION.md section 4 prescribes for a disagreement. */
+export const MODEL_LOOKUP_DISAGREEMENT_PHRASE = "model and reference lookup disagree";
+
+const LABILE_HYDROGEN_HOSTS = new Set([7, 8, 16]);
+
+export interface GnnShiftPredictorOptions extends OclHosePredictorOptions {
+  /** Model source. Default: the bundled models, loaded lazily. */
+  models?: GnnModelProvider;
+  /** HOSE lookup engine. Default: an `OclHosePredictor` with the same database options. */
+  hose?: NmrPredictor;
+  /** Training domain and agreement bands. Default: the frozen values shipped with the model. */
+  domain?: GnnTrainingDomain;
+  bands?: Readonly<Record<GnnNucleus, number>>;
+  /**
+   * Observer for the features this prediction computed (or the featurizer's error code), called once
+   * per ¹H/¹³C prediction before any model runs. Used by the worker-path parity checks; it cannot
+   * change the result.
+   */
+  onFeatures?: (outcome: { features: GnnMoleculeFeatures } | { error: string }) => void;
+}
+
+/** The GNN's outcome for one constitutional class. */
+interface ClassOutcome {
+  nucleus: GnnNucleus;
+  atoms: readonly number[];
+  /** The HOSE engine's resonance for these atoms, if it produced one. */
+  hose?: NmrResonance;
+  /** What is shown: a GNN resonance, the labeled HOSE resonance, or nothing. */
+  shipped?: NmrResonance;
+  declines: readonly GnnDeclineRule[];
+}
+
+export class GnnShiftPredictor implements NmrPredictor {
+  private readonly hose: NmrPredictor;
+  private readonly models: GnnModelProvider;
+  private readonly domain: GnnTrainingDomain;
+  private readonly bands: Readonly<Record<GnnNucleus, number>>;
+  private readonly onFeatures?: GnnShiftPredictorOptions["onFeatures"];
+
+  constructor(options: GnnShiftPredictorOptions = {}) {
+    const { models, hose, domain, bands, onFeatures, ...hoseOptions } = options;
+    this.onFeatures = onFeatures;
+    this.hose = hose ?? new OclHosePredictor(hoseOptions);
+    this.models = models ?? new GnnModelRuntime();
+    this.domain = domain ?? GNN_TRAINING_DOMAIN;
+    this.bands = bands ?? GNN_AGREEMENT_BANDS;
+  }
+
+  /** Never loads a model. */
+  async getCapabilities(): Promise<NmrPredictorCapabilities> {
+    const hose = await this.hose.getCapabilities();
+    return { ...hose, id: GNN_HOSE_BACKEND_ID, execution: "wasm" };
+  }
+
+  async predict(request: NmrPredictionRequest, signal?: AbortSignal): Promise<NmrPredictionResult> {
+    throwIfAborted(signal);
+    const hoseResult = await this.hose.predict(request, signal);
+    const nuclei = dedupeNuclei(request.nuclei);
+    const gnnNuclei = nuclei.filter((nucleus): nucleus is GnnNucleus => nucleus === "1H" || nucleus === "13C");
+    if (gnnNuclei.length === 0) {
+      // ³¹P only: the HOSE result, unchanged apart from the method label.
+      return { ...hoseResult, resonances: hoseResult.resonances.map(labelHose) };
+    }
+
+    const { molecule } = normalizeStructure(request.structure);
+    let features: GnnMoleculeFeatures | undefined;
+    let featureError: string | undefined;
+    try {
+      features = featurizeMolecule(molecule);
+    } catch (error) {
+      featureError = featurizationErrorCode(error);
+    }
+    this.onFeatures?.(features ? { features } : { error: featureError ?? "GNN_FEATURIZATION_FAILED" });
+    const maxSpheres = Math.max(1, ...(request.options.hoseLevels.length ? request.options.hoseLevels : [MAX_SPHERES]));
+    const context = prepareProductionLookup(molecule, maxSpheres);
+    const hoseByClass = new Map(
+      hoseResult.resonances.map((resonance) => [
+        classKey(resonance.nucleus, resonance.atomRefs.map((ref) => ref.sourceAtomIndex)),
+        resonance
+      ])
+    );
+
+    const gnnWarnings: NmrPredictionWarning[] = [];
+    const outcomes = new Map<GnnNucleus, ClassOutcome[]>();
+    for (const nucleus of gnnNuclei) {
+      throwIfAborted(signal);
+      const classes = (nucleus === "13C" ? context.carbonClasses : context.protonClasses).filter(
+        (atoms) =>
+          !(nucleus === "1H" && request.options.ignoreLabileHydrogens &&
+            LABILE_HYDROGEN_HOSTS.has(molecule.getAtomicNo(representativeOf(context, atoms))))
+      );
+      const state = await this.models.load(nucleus);
+      throwIfAborted(signal);
+      outcomes.set(
+        nucleus,
+        await this.predictNucleus(nucleus, classes, state, features, featureError, molecule, context, request, hoseByClass, gnnWarnings)
+      );
+      throwIfAborted(signal);
+    }
+
+    const resonances: NmrResonance[] = [];
+    for (const nucleus of nuclei) {
+      if (nucleus === "31P") {
+        resonances.push(...hoseResult.resonances.filter((resonance) => resonance.nucleus === "31P").map(labelHose));
+      } else {
+        for (const outcome of outcomes.get(nucleus) ?? []) {
+          if (outcome.shipped) resonances.push(outcome.shipped);
+        }
+      }
+    }
+    const allOutcomes = [...outcomes.values()].flat();
+    const warnings = [
+      ...reconcileHoseWarnings(hoseResult.warnings, hoseResult.resonances, allOutcomes, nuclei, resonances),
+      ...gnnWarnings
+    ];
+    const gnnShippedNuclei = gnnNuclei.filter((nucleus) =>
+      resonances.some((resonance) => resonance.nucleus === nucleus && resonance.method === GNN_METHOD_LABEL)
+    );
+    return {
+      ...hoseResult,
+      backend: {
+        ...hoseResult.backend,
+        id: GNN_HOSE_BACKEND_ID,
+        method: gnnShippedNuclei.length > 0 ? "gnn" : hoseResult.backend.method,
+        ...(gnnShippedNuclei.length > 0
+          ? {
+              model: {
+                id: GNN_MODEL_RELEASE.id,
+                version: GNN_MODEL_RELEASE.version,
+                nuclei: gnnShippedNuclei,
+                trainingData: GNN_MODEL_RELEASE.trainingData,
+                dataLicense: GNN_MODEL_RELEASE.dataLicense
+              }
+            }
+          : {})
+      },
+      resonances,
+      warnings
+    };
+  }
+
+  private async predictNucleus(
+    nucleus: GnnNucleus,
+    classes: readonly (readonly number[])[],
+    state: GnnModelState,
+    features: GnnMoleculeFeatures | undefined,
+    featureError: string | undefined,
+    molecule: OCL.Molecule,
+    context: ProductionLookupContext,
+    request: NmrPredictionRequest,
+    hoseByClass: ReadonlyMap<string, NmrResonance>,
+    warnings: NmrPredictionWarning[]
+  ): Promise<ClassOutcome[]> {
+    const fallback = (atoms: readonly number[], declines: readonly GnnDeclineRule[] = []): ClassOutcome => {
+      const hose = hoseByClass.get(classKey(nucleus, atoms));
+      return {
+        nucleus,
+        atoms,
+        hose,
+        declines,
+        shipped: hose ? { ...labelHose(hose), ...(declines.length ? { modelDeclines: [...declines] } : {}) } : undefined
+      };
+    };
+    if (classes.length === 0) return [];
+    if (state.status === "unavailable") {
+      warnings.push(nmrWarning(
+        NmrWarningCodes.GnnModelUnavailable,
+        `The ${nucleus} GNN model is unavailable (${state.reason}); ${nucleus} shifts are HOSE lookup values. ${state.message}`,
+        { details: { nucleus, reason: state.reason } }
+      ));
+      return classes.map((atoms) => fallback(atoms));
+    }
+
+    // Decline assessment per class: the union over its member atoms (constitutionally equivalent
+    // atoms share every input the rules read, so this equals the per-atom decision).
+    const nodeByAtom = new Map(features?.heavyAtomIndexMap.map((atom, node) => [atom, node]) ?? []);
+    const assessments = classes.map((atoms) => {
+      if (!features) return { declines: ["graph"] as GnnDeclineRule[], margin: false, node: -1 };
+      const reasons = new Set<GnnDeclineRule>();
+      let margin = true;
+      for (const atom of atoms) {
+        const node = nodeByAtom.get(atom);
+        const element = node === undefined ? undefined : describeNode(features.atoms[node]).element;
+        // The model predicts on heavy-atom nodes only, and ¹³C on carbon nodes.
+        if (node === undefined || element === "H" || (nucleus === "13C" && element !== "C")) {
+          reasons.add("graph");
+          margin = false;
+          continue;
+        }
+        const assessment = assessNode(features, node, this.domain);
+        for (const rule of assessment.declines) reasons.add(rule);
+        margin &&= assessment.margin;
+      }
+      const node = nodeByAtom.get(representativeOf(context, atoms)) ?? -1;
+      return { declines: GNN_DECLINE_RULES.filter((rule) => reasons.has(rule)), margin: margin && reasons.size === 0, node };
+    });
+
+    let predictions: Float32Array | undefined;
+    if (features && assessments.some((assessment) => assessment.declines.length === 0)) {
+      try {
+        predictions = await state.model.run({ features, tensors: packGnnInputs(features) });
+      } catch (error) {
+        warnings.push(nmrWarning(
+          NmrWarningCodes.GnnInferenceFailed,
+          `GNN inference failed for ${nucleus}; ${nucleus} shifts are HOSE lookup values. ${error instanceof Error ? error.message : String(error)}`,
+          { details: { nucleus } }
+        ));
+        return classes.map((atoms) => fallback(atoms));
+      }
+    }
+
+    const band = this.bands[nucleus];
+    const outcomes = classes.map((atoms, index): ClassOutcome => {
+      const assessment = assessments[index];
+      if (assessment.declines.length > 0 || !predictions || assessment.node < 0) {
+        return fallback(atoms, assessment.declines.length > 0 ? assessment.declines : ["graph"]);
+      }
+      const hose = hoseByClass.get(classKey(nucleus, atoms));
+      const value = predictions[assessment.node];
+      const reference = hoseMatch(hose);
+      const lookup = reference?.deltaPpm ?? null;
+      const sphere = reference?.matchedSphere ?? null;
+      const tier = gnnTier(value, lookup, sphere, band, assessment.margin);
+      const disagrees = gnnDisagrees(value, lookup, sphere, band);
+      const shipped = gnnResonance(nucleus, atoms, value, tier, reference, disagrees, hose, molecule, context, request);
+      if (disagrees && reference) {
+        warnings.push(nmrWarning(
+          NmrWarningCodes.ModelLookupDisagreement,
+          `${nucleus} ${nucleus === "1H" ? "host atoms" : "atoms"} ${atoms.join(", ")}: ${MODEL_LOOKUP_DISAGREEMENT_PHRASE} (GNN prediction ${shipped.deltaPpm.toFixed(2)} ppm, HOSE lookup ${reference.deltaPpm.toFixed(2)} ppm, agreement band ${band} ppm). The GNN value is shown with tier low; the values are not averaged.`,
+          {
+            atomIndices: [...atoms],
+            details: { nucleus, gnnPpm: shipped.deltaPpm, lookupPpm: reference.deltaPpm, bandPpm: band }
+          }
+        ));
+      }
+      return { nucleus, atoms, hose, declines: [], shipped };
+    });
+
+    // One notice per distinct set of decline rules, naming the rules and the atoms.
+    const byRules = new Map<string, { declines: readonly GnnDeclineRule[]; atoms: number[]; withoutShift: number[] }>();
+    for (const outcome of outcomes) {
+      if (outcome.declines.length === 0) continue;
+      const key = outcome.declines.join(",");
+      const group = byRules.get(key) ?? { declines: outcome.declines, atoms: [], withoutShift: [] };
+      group.atoms.push(...outcome.atoms);
+      if (!outcome.shipped) group.withoutShift.push(...outcome.atoms);
+      byRules.set(key, group);
+    }
+    for (const { declines, atoms, withoutShift } of byRules.values()) {
+      const sorted = [...atoms].sort((a, b) => a - b);
+      const reasons = declines.map((rule) => GNN_DECLINE_RULE_DESCRIPTIONS[rule]).join("; ");
+      const noShift = withoutShift.length
+        ? ` No HOSE lookup value exists for ${withoutShift.length === sorted.length ? "them" : `atoms ${[...withoutShift].sort((a, b) => a - b).join(", ")}`}, so no shift is shown there.`
+        : "";
+      warnings.push(nmrWarning(
+        NmrWarningCodes.GnnDeclined,
+        `GNN prediction withheld for ${nucleus} ${nucleus === "1H" ? "host atoms" : "atoms"} ${sorted.join(", ")} (zero-based): ${reasons}. The HOSE lookup value is shown instead where one exists.${noShift}`,
+        {
+          atomIndices: sorted,
+          details: { nucleus, rules: [...declines], ...(featureError && declines.includes("graph") ? { featurizerError: featureError } : {}) }
+        }
+      ));
+    }
+    return outcomes;
+  }
+}
+
+function gnnResonance(
+  nucleus: GnnNucleus,
+  atoms: readonly number[],
+  value: number,
+  tier: GnnTier,
+  reference: NmrReferenceLookup | undefined,
+  disagrees: boolean,
+  hose: NmrResonance | undefined,
+  molecule: OCL.Molecule,
+  context: ProductionLookupContext,
+  request: NmrPredictionRequest
+): NmrResonance {
+  let atomRefs: readonly NmrAtomReference[];
+  let equivalentNuclei: number;
+  let multiplet: NmrMultiplet | undefined;
+  if (hose) {
+    atomRefs = hose.atomRefs;
+    equivalentNuclei = hose.equivalentNuclei ?? atoms.length;
+    multiplet = hose.multiplet;
+  } else if (nucleus === "13C") {
+    atomRefs = atoms.map((atom) => ({ sourceAtomIndex: atom, element: "C", equivalentCount: 1 }));
+    equivalentNuclei = atoms.length;
+  } else {
+    const counts = atoms.map((atom) => protonCount(molecule, atom));
+    atomRefs = atoms.map((atom, index) => ({ sourceAtomIndex: atom, element: "H", equivalentCount: counts[index] }));
+    equivalentNuclei = counts.reduce((sum, count) => sum + count, 0);
+    multiplet = computeMultiplet(molecule, representativeOf(context, atoms), atoms, request.options.ignoreLabileHydrogens);
+  }
+  return {
+    id: `${nucleus === "13C" ? "c" : "h"}-${Math.min(...atoms)}`,
+    nucleus,
+    source: "model",
+    method: GNN_METHOD_LABEL,
+    tier,
+    ...(reference ? { reference } : {}),
+    ...(disagrees ? { disagreesWithReference: true } : {}),
+    deltaPpm: round2(value),
+    atomRefs,
+    equivalentNuclei,
+    evidence: { method: "gnn" },
+    ...(multiplet ? { multiplet } : {}),
+    flags: disagrees ? ["model-lookup-disagreement"] : []
+  };
+}
+
+/** A HOSE match (not a rule estimate) for the tiers and the disagreement test. */
+function hoseMatch(resonance: NmrResonance | undefined): NmrReferenceLookup | undefined {
+  if (!resonance || isRuleEstimated(resonance) || resonance.evidence?.method !== "hose-fragment") return undefined;
+  const { matchedSphere, sampleCount, environmentCode } = resonance.evidence;
+  if (matchedSphere === undefined || sampleCount === undefined) return undefined;
+  return {
+    method: HOSE_METHOD_LABEL,
+    deltaPpm: resonance.deltaPpm,
+    matchedSphere,
+    sampleCount,
+    ...(environmentCode ? { environmentCode } : {})
+  };
+}
+
+function labelHose(resonance: NmrResonance): NmrResonance {
+  return { ...resonance, method: HOSE_METHOD_LABEL };
+}
+
+/**
+ * Keep the HOSE engine's notices that still describe what is shown. A notice about a resonance the
+ * GNN replaced is dropped (thin-match notices, "no database match" omissions); the rule-estimate
+ * summary and the omission count are recounted over what is shown. When the GNN shows nothing (model
+ * unavailable, everything declined), every notice is kept exactly as the HOSE engine wrote it.
+ */
+function reconcileHoseWarnings(
+  hoseWarnings: readonly NmrPredictionWarning[],
+  hoseResonances: readonly NmrResonance[],
+  outcomes: readonly ClassOutcome[],
+  nuclei: readonly NmrNucleus[],
+  shown: readonly NmrResonance[]
+): NmrPredictionWarning[] {
+  const replaced = outcomes.filter((outcome) => outcome.shipped?.method === GNN_METHOD_LABEL);
+  if (replaced.length === 0) return [...hoseWarnings];
+  const replacedKeys = new Set(replaced.map((outcome) => classKey(outcome.nucleus, outcome.atoms)));
+  const replacedHose = hoseResonances.filter((resonance) =>
+    replacedKeys.has(classKey(resonance.nucleus, resonance.atomRefs.map((ref) => ref.sourceAtomIndex)))
+  );
+  const thinMatchMessages = new Set(
+    replacedHose.flatMap((resonance) => {
+      const atoms = atomsKey(resonance.atomRefs.map((ref) => ref.sourceAtomIndex));
+      const sampleCount = resonance.evidence?.sampleCount;
+      return [
+        `${atoms}|Only ${sampleCount} reference shift(s) for ${resonance.nucleus} ${resonance.deltaPpm} ppm.`,
+        `${atoms}|${resonance.nucleus} ${resonance.deltaPpm} ppm matched only a 1-sphere environment; confidence is low.`
+      ];
+    })
+  );
+
+  const estimates = shown.filter(isRuleEstimated);
+  const omittedAtoms = outcomes
+    .filter((outcome) => !outcome.shipped)
+    .reduce((sum, outcome) => sum + outcome.atoms.length, 0);
+  const kept: NmrPredictionWarning[] = [];
+  for (const warning of hoseWarnings) {
+    switch (warning.code) {
+      case NmrWarningCodes.SmallReferencePopulation:
+      case NmrWarningCodes.LowHoseSphereMatch:
+        if (thinMatchMessages.has(`${atomsKey(warning.atomIndices ?? [])}|${warning.message}`)) continue;
+        break;
+      case NmrWarningCodes.NoFragmentMatch: {
+        const nucleus = warning.details?.nucleus;
+        if ((nucleus === "1H" || nucleus === "13C") && replacedKeys.has(classKey(nucleus, warning.atomIndices ?? []))) continue;
+        break;
+      }
+      case NmrWarningCodes.RuleEstimated:
+        if (estimates.length > 0) kept.push(ruleEstimateWarning(estimates, nuclei));
+        continue;
+      case NmrWarningCodes.PartialPrediction:
+        if (warning.details?.nucleus === "31P") break;
+        if (omittedAtoms > 0) {
+          kept.push(nmrWarning(
+            NmrWarningCodes.PartialPrediction,
+            `${omittedAtoms} unmatched atom environment(s) were omitted because no applicable rule estimate exists.`,
+            { severity: "warning", details: { omittedEnvironmentCount: omittedAtoms } }
+          ));
+        }
+        continue;
+    }
+    kept.push(warning);
+  }
+  return kept;
+}
+
+/** The HOSE engine's rule-estimate summary, recounted over the estimates still shown. */
+function ruleEstimateWarning(estimates: readonly NmrResonance[], nuclei: readonly NmrNucleus[]): NmrPredictionWarning {
+  const estimateAtoms = (values: readonly NmrResonance[]): number[] =>
+    [...new Set(values.flatMap((resonance) => resonance.atomRefs.map((ref) => ref.sourceAtomIndex)))].sort((a, b) => a - b);
+  const atomLists = nuclei.flatMap((nucleus) => {
+    const atoms = estimateAtoms(estimates.filter((resonance) => resonance.nucleus === nucleus));
+    return atoms.length ? [`${nucleus} ${nucleus === "1H" ? "host atoms" : "atoms"} ${atoms.join(", ")}`] : [];
+  });
+  return nmrWarning(
+    NmrWarningCodes.RuleEstimated,
+    `${estimates.length} resonance(s) had no database match and are shown as rule estimates (est.): ${atomLists.join("; ")}. Atom indices are zero-based; 1H indices identify the host atom.`,
+    { severity: "warning", atomIndices: estimateAtoms(estimates) }
+  );
+}
+
+function representativeOf(context: ProductionLookupContext, atoms: readonly number[]): number {
+  return context._representativeByAtom[atoms[0]] ?? atoms[0];
+}
+
+function classKey(nucleus: NmrNucleus, atoms: readonly number[]): string {
+  return `${nucleus}:${atomsKey(atoms)}`;
+}
+
+function atomsKey(atoms: readonly number[]): string {
+  return [...atoms].sort((a, b) => a - b).join(",");
+}
+
+function dedupeNuclei(nuclei: readonly NmrNucleus[]): NmrNucleus[] {
+  return [...new Set(nuclei)];
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new NmrError(NmrErrorCodes.PredictionCancelled, "Prediction was cancelled.");
+  }
+}
+
+const round2 = (value: number): number => Math.round(value * 100) / 100;

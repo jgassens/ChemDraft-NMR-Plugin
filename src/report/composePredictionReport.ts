@@ -10,6 +10,7 @@ import { isRuleEstimated, PROTON_HIGH_DISPERSION_CROSS_CHECK_PPM } from "../doma
 import type { NmrNucleus, NmrPredictionResult, NmrReferenceDatabase, NmrResonance } from "../domain/contracts";
 import type { CommandError } from "../application/mapSelection";
 import { MEASURED_ACCURACY, PHOSPHORUS_MEASURED_ACCURACY } from "../providers/ocl/measuredAccuracy";
+import { GNN_AGREEMENT_BANDS, GNN_MEASURED_ACCURACY, GNN_MODEL_RELEASE } from "../providers/gnn/modelRelease";
 import { DEUTERIUM_PROTON_GYROMAGNETIC_RATIO } from "../domain/firstOrderCoupling";
 import { NmrWarningCodes } from "../domain/warnings";
 import { deuteriumMultipletComponents, hasDeuteriumCoupling } from "./deuteriumMultiplet";
@@ -29,6 +30,12 @@ const RULE_ONLY_NOTE =
 const NO_RESULT_NOTE =
   "No applicable resonance was produced: neither the configured reference database nor the bounded " +
   "rule tables yielded a supported shift. See the notices for the omitted chemistry.";
+const GNN_NOTE =
+  "Shifts labeled GNN prediction come from a graph neural network trained on NMRShiftDB2 assignments (the database " +
+  "does not mark which are experimental), run locally from the model files bundled with this plugin. Its tier (high, " +
+  "medium, low) compares the GNN with the HOSE lookup for the same atoms and states how far the atom lies inside the " +
+  "training data; tiers are names, not probabilities. Shifts labeled HOSE lookup are reference statistics shown where " +
+  "the GNN declined or was unavailable.";
 const OTHER_METHOD_NOTE =
   "Method-derived predicted shifts from the reported backend. They are predictions, not experimental " +
   "measurements; consult the engine provenance and notices for method-specific limits.";
@@ -91,6 +98,7 @@ export function composePredictionReport(
       rows: [
         { label: "Method", value: resultMethodLabel(result, methods) },
         { label: "Engine", value: `${result.backend.id} v${result.backend.version}` },
+        ...(result.backend.model ? [{ label: "Model", value: `${result.backend.model.id} ${result.backend.model.version}` }] : []),
         { label: "Nuclei", value: nucleiLabel(distinctNuclei(result)) || "—" },
         { label: "Resonances", value: String(result.resonances.length) }
       ]
@@ -127,6 +135,7 @@ export function composePredictionReport(
       body: `¹H–²H couplings are typical first-order estimates: J(HD) = ${DEUTERIUM_PROTON_GYROMAGNETIC_RATIO.toFixed(4)} × J(HH), based on the IUPAC Recommendations 2001 magnetogyric ratios (Tables 1 and 2; R. K. Harris et al., Pure Appl. Chem. 73(11), 1795–1818, doi:10.1351/pac200173111795). D has spin I = 1: n equivalent D give 2n+1 lines, with intensities 1:1:1 (1D), 1:2:3:2:1 (2D), or 1:3:6:7:6:3:1 (3D), nested with H–H splitting. Line spacing follows the spectrometer field selected in the spectrum. Geminal H–D is omitted because this model has no geminal H–H constant. Isotope shifts are not modelled.`
     });
   }
+  sections.push(...modelSections(result));
   sections.push(...databaseSection(result));
   sections.push({ kind: "text", body: resultDisclaimer(result, methods) });
 
@@ -153,14 +162,20 @@ function distinctNuclei(result: NmrPredictionResult): NmrNucleus[] {
  */
 interface ResultMethodSummary {
   fixture: boolean;
+  hasGnn: boolean;
   hasHose: boolean;
   hasRules: boolean;
   empty: boolean;
 }
 
+function isGnnPrediction(resonance: NmrResonance): boolean {
+  return resonance.method === "GNN prediction";
+}
+
 function resultMethodSummary(result: NmrPredictionResult): ResultMethodSummary {
   return {
     fixture: result.backend.method === "fixture-fragment",
+    hasGnn: result.resonances.some(isGnnPrediction),
     hasHose: result.resonances.some((resonance) => resonance.evidence?.method === "hose-fragment"),
     hasRules: result.resonances.some(isRuleEstimated),
     empty: result.resonances.length === 0
@@ -168,6 +183,15 @@ function resultMethodSummary(result: NmrPredictionResult): ResultMethodSummary {
 }
 
 function resultDisclaimer(result: NmrPredictionResult, methods: ResultMethodSummary): string {
+  const note = hoseDisclaimer(result, methods);
+  return methods.hasGnn ? `${GNN_NOTE} ${note}` : note;
+}
+
+function hoseDisclaimer(result: NmrPredictionResult, methods: ResultMethodSummary): string {
+  if (methods.hasGnn && !methods.hasHose && !methods.hasRules &&
+      result.resonances.every((resonance) => resonance.nucleus !== "31P")) {
+    return "Every shown shift is a GNN prediction.";
+  }
   if (result.resonances.some((resonance) => resonance.nucleus === "31P")) {
     const note = "³¹P shifts use HOSE reference statistics. Confidence reflects the matched sphere and reference population.";
     if (result.resonances.every((resonance) => resonance.nucleus === "31P")) return note;
@@ -188,6 +212,9 @@ function resultDisclaimer(result: NmrPredictionResult, methods: ResultMethodSumm
 
 function resultMethodLabel(result: NmrPredictionResult, methods: ResultMethodSummary): string {
   if (methods.empty) return "no applicable prediction";
+  if (methods.hasGnn) {
+    return ["GNN prediction", ...(methods.hasHose ? ["HOSE lookup"] : []), ...(methods.hasRules ? ["rule-estimated"] : [])].join(" + ");
+  }
   if (methods.hasHose && methods.hasRules) return "hose-fragment + rule-estimated";
   if (methods.hasRules) return "rule-estimated";
   return result.backend.method;
@@ -195,6 +222,9 @@ function resultMethodLabel(result: NmrPredictionResult, methods: ResultMethodSum
 
 function linkedFigureSection(result: NmrPredictionResult, methods: ResultMethodSummary): PluginLinkedFigureSection {
   const nucleus = result.resonances[0]?.nucleus ?? "13C";
+  // With GNN predictions in the spectrum, the comparison is GNN versus HOSE lookup; the increment
+  // comparison of HOSE-only spectra is not mixed into it.
+  const gnnComparison = methods.hasGnn;
   const peaks: PluginLinkedFigurePeak[] = result.resonances.flatMap((resonance) => {
     const peak: PluginLinkedFigurePeak = {
       id: resonance.id,
@@ -212,7 +242,9 @@ function linkedFigureSection(result: NmrPredictionResult, methods: ResultMethodS
     }
     // Expose every chemically applicable HOSE/increment pair to the figure. `disagrees` controls
     // interpretation only; it never gates the user's access to an available table calculation.
-    if (resonance.crossCheck) {
+    if (gnnComparison) {
+      if (resonance.reference) peak.alternativePpm = resonance.reference.deltaPpm;
+    } else if (resonance.crossCheck) {
       peak.alternativePpm = resonance.crossCheck.incrementPpm;
     }
     const couplings = resonance.multiplet?.couplings ?? [];
@@ -250,7 +282,9 @@ function linkedFigureSection(result: NmrPredictionResult, methods: ResultMethodS
       domain: spectrumDomain(nucleus, shifts),
       reversed: true,
       peaks,
-      ...(nucleus === "1H" && methods.hasHose
+      ...(gnnComparison
+        ? { comparison: { primaryLabel: "GNN", alternativeLabel: "HOSE lookup", alternativeMarker: "ₕ" } }
+        : nucleus === "1H" && methods.hasHose
         ? {
             comparison: {
               primaryLabel: "HOSE",
@@ -262,7 +296,7 @@ function linkedFigureSection(result: NmrPredictionResult, methods: ResultMethodS
     }
   };
 
-  if (methods.hasHose && nucleus !== "31P") {
+  if ((methods.hasHose || methods.hasGnn) && nucleus !== "31P") {
     // Measured 106/196 CDCl₃ in the NMReDATA sample (then D₂O, DMSO-d₆, …): predominant, not uniform.
     // Only stated for measured-data results — the synthetic fixture has no solvent context.
     section.spectrum.solvent = "CDCl₃ (predominant reference solvent; mixed corpus)";
@@ -284,6 +318,10 @@ function figureCaption(methods: ResultMethodSummary, nucleus: NmrNucleus): strin
     "Peak height represents predicted equivalent nuclei, not experimental integration. " +
     "Scroll to zoom, drag to pan; hover a peak to highlight its atoms.";
   if (methods.fixture) return `Synthetic fixture spectrum. ${interaction}`;
+  if (methods.hasGnn) {
+    return `GNN-predicted spectrum${methods.hasHose || methods.hasRules ? "; HOSE lookup values where the GNN declined" : ""}. ` +
+      `Peak shading follows the GNN tier; "Show both" adds the HOSE lookup value where one exists. ${interaction}`;
+  }
   if (methods.hasHose && methods.hasRules) {
     return `Mixed HOSE and rule-estimated spectrum; muted italic peaks labelled est. mark rule estimates. ${interaction}`;
   }
@@ -310,6 +348,9 @@ function spectrumDomain(nucleus: NmrNucleus, shifts: readonly number[]): { min: 
 }
 
 function resonanceTable(result: NmrPredictionResult): PluginPanelSection {
+  // Results that carry method labels (every result of the GNN-first predictor) show them in their own
+  // column; older session data and the fixture have none, so their layout is unchanged.
+  const labeled = result.resonances.some((resonance) => resonance.method !== undefined);
   const rows = [...result.resonances]
     .sort((a, b) => b.deltaPpm - a.deltaPpm)
     .map((resonance) => {
@@ -317,6 +358,7 @@ function resonanceTable(result: NmrPredictionResult): PluginPanelSection {
       return [
         nucleusLabel(resonance.nucleus),
         `${estimated ? "≈" : ""}${resonance.deltaPpm.toFixed(2)}`,
+        ...(labeled ? [resonance.method ?? "—"] : []),
         String(resonance.equivalentNuclei ?? 1),
         resonance.multiplet?.label ?? "—",
         formatCouplings(resonance),
@@ -325,7 +367,7 @@ function resonanceTable(result: NmrPredictionResult): PluginPanelSection {
         resonance.atomRefs.map((ref) => ref.sourceAtomIndex).join(", "),
         estimated
           ? `rule-estimated (${resonance.evidence?.estimator?.method ?? "unknown rule"})`
-          : resonance.evidence?.environmentCode ?? "—"
+          : resonance.evidence?.environmentCode ?? resonance.reference?.environmentCode ?? "—"
       ];
     });
 
@@ -335,6 +377,7 @@ function resonanceTable(result: NmrPredictionResult): PluginPanelSection {
     columns: [
       "Nucleus",
       "δ (ppm)",
+      ...(labeled ? ["Method"] : []),
       "Equiv.",
       "Mult. (est.)",
       "J est. (Hz)",
@@ -375,6 +418,9 @@ type ConfidenceTier = "high" | "medium" | "low" | "estimated" | "unknown";
  *  `unknown` = a match with no sphere/n basis (e.g. the synthetic fixture). */
 function confidenceTier(resonance: NmrResonance): ConfidenceTier {
   const evidence = resonance.evidence;
+  if (isGnnPrediction(resonance)) {
+    return resonance.tier ?? "unknown";
+  }
   if (isRuleEstimated(resonance)) {
     return "estimated";
   }
@@ -412,11 +458,57 @@ function confidenceLabel(resonance: NmrResonance): string {
 /** Confidence label plus every paired increment value. The table always shows both numbers
  * transparently; `disagrees` controls notice emphasis, not whether the second opinion is visible. */
 function confidenceCell(resonance: NmrResonance): string {
-  const base = confidenceLabel(resonance);
-  if (resonance.crossCheck) {
-    return `${base} · vs inc ${resonance.crossCheck.incrementPpm.toFixed(2)}`;
+  if (isGnnPrediction(resonance)) {
+    // The GNN tier, then the HOSE lookup value for the same atoms: both numbers are always shown.
+    const tier = resonance.tier ?? "—";
+    const reference = resonance.reference;
+    const lookup = reference
+      ? ` · HOSE ${reference.deltaPpm.toFixed(2)} (s${reference.matchedSphere}, n=${reference.sampleCount})`
+      : " · no HOSE match";
+    return `${tier}${resonance.disagreesWithReference ? " · model and reference lookup disagree" : ""}${lookup}`;
   }
-  return base;
+  const base = confidenceLabel(resonance);
+  const declined = resonance.modelDeclines?.length ? ` · GNN declined (${resonance.modelDeclines.join(", ")})` : "";
+  if (resonance.crossCheck) {
+    return `${base} · vs inc ${resonance.crossCheck.incrementPpm.toFixed(2)}${declined}`;
+  }
+  return `${base}${declined}`;
+}
+
+/** The GNN model behind the result: identity, training data and its license, the tier rules, and the
+ *  measured test-set error, always next to the partition it was measured on (ABSTENTION.md section 5). */
+function modelSections(result: NmrPredictionResult): PluginPanelSection[] {
+  const model = result.backend.model;
+  if (!model) return [];
+  const rows = [
+    { label: "Model", value: `${model.id} ${model.version} (graph neural network, ONNX)` },
+    { label: "Training data", value: model.trainingData },
+    { label: "Data license", value: model.dataLicense }
+  ];
+  if (model.id === GNN_MODEL_RELEASE.id && model.version === GNN_MODEL_RELEASE.version) {
+    for (const nucleus of model.nuclei) {
+      if (nucleus !== "1H" && nucleus !== "13C") continue;
+      rows.push({
+        label: `Measured MAE (${nucleiLabel([nucleus])})`,
+        value: `${GNN_MEASURED_ACCURACY.maePpm[nucleus]} ppm — ${GNN_MEASURED_ACCURACY.partition}; ${GNN_MEASURED_ACCURACY.opening}`
+      });
+    }
+  }
+  const bands = model.nuclei
+    .flatMap((nucleus) => (nucleus === "1H" || nucleus === "13C" ? [`${nucleiLabel([nucleus])} ${GNN_AGREEMENT_BANDS[nucleus]} ppm`] : []))
+    .join(", ");
+  return [
+    { kind: "keyValue", title: "GNN model", rows },
+    {
+      kind: "text",
+      title: "GNN tiers",
+      body:
+        `high: a HOSE match at sphere 3 or deeper agrees with the GNN within the agreement band (${bands}). ` +
+        "medium: a sphere 1–2 HOSE match agrees within the band, or there is no HOSE match and the atom and its neighbors are well represented in the training data. " +
+        "low: the GNN and the HOSE lookup disagree beyond the band (both values are shown, never averaged), or the atom is in the training domain only by the minimum counts. " +
+        "Where the GNN declines an atom (rare element, charge or radical state, isotope label, size, or an unsupported structure), the HOSE lookup value is shown instead; with no HOSE value, no shift is shown."
+    }
+  ];
 }
 
 /** Database provenance (ADR-0014): name, version, license, source + attribution, when the backend
@@ -450,7 +542,7 @@ function referenceDatabaseSections(
   if (database.source) {
     rows.push({ label: "Source", value: database.source });
   }
-  rows.push(...measuredAccuracyRows(database.dataChecksum, nuclei));
+  rows.push(...measuredAccuracyRows(database.dataChecksum, nuclei, backendId === "chemdraft.gnn-hose"));
   const sections: PluginPanelSection[] = [{ kind: "keyValue", title: "Reference database", rows }];
   if (database.attribution) {
     sections.push({ kind: "text", body: database.attribution });
@@ -461,7 +553,11 @@ function referenceDatabaseSections(
 /** Held-out benchmark error for the nuclei in this result — shown only when the active database was
  * compiled from the exact corpus the benchmark measured (checksum equality). A rebuild from any
  * other corpus silently drops the claim until the benchmark is rerun (ADR-0026). */
-function measuredAccuracyRows(dataChecksum: string | undefined, nuclei: readonly NmrNucleus[]): { label: string; value: string }[] {
+function measuredAccuracyRows(
+  dataChecksum: string | undefined,
+  nuclei: readonly NmrNucleus[],
+  lookupOfGnnResult = false
+): { label: string; value: string }[] {
   const rows: { label: string; value: string }[] = [];
   for (const nucleus of nuclei) {
     const benchmark = nucleus === "31P" ? PHOSPHORUS_MEASURED_ACCURACY : MEASURED_ACCURACY;
@@ -475,7 +571,7 @@ function measuredAccuracyRows(dataChecksum: string | undefined, nuclei: readonly
       })
       .join(" / ");
     rows.push({
-      label: `Measured accuracy (${nucleiLabel([nucleus])})`,
+      label: `${lookupOfGnnResult && nucleus !== "31P" ? "HOSE lookup measured accuracy" : "Measured accuracy"} (${nucleiLabel([nucleus])})`,
       value: `median |Δ| ${measured.hose.medianAe} ppm (${tiers}) — ${nucleus === "31P"
         ? PHOSPHORUS_MEASURED_ACCURACY.partition
         : "held-out benchmark"}, ${benchmark.benchmarkDate}`

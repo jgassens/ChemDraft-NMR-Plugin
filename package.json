@@ -20,9 +20,20 @@
       "copyright": "(c) 2026 Robert Geitner",
       "noticeFile": "src/providers/ocl/ILM_NMR_P31_LICENSE.md",
       "note": "redistributed with the author's permission (owner, 2026-11-20)"
+    },
+    {
+      "name": "NMRShiftDB2-derived GNN shift model weights and training-domain counts",
+      "path": "src/providers/gnn/model",
+      "files": [
+        "src/providers/gnn/model/1H.fp16.onnx",
+        "src/providers/gnn/model/13C.fp16.onnx",
+        "src/providers/gnn/model/domain.json"
+      ],
+      "license": "nmrshiftdb2 Database License (ODbL-derived)",
+      "noticeFile": "src/providers/ocl/NMRSHIFTDB2_LICENSE.md"
     }
   ],
-  "description": "ChemDraft NMR shift predictor plugin with 1H/13C HOSE-fragment statistics from NMRShiftDB2 assignments and 31P statistics from Ilm-NMR-P31.",
+  "description": "ChemDraft NMR shift predictor plugin: a bundled graph neural network trained on NMRShiftDB2 assignments predicts 1H/13C shifts, with HOSE-fragment statistics from NMRShiftDB2 as cross-check and fallback; 31P statistics from Ilm-NMR-P31.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jgassens/ChemDraft-NMR-Plugin.git"
@@ -37,6 +48,7 @@
   },
   "dependencies": {
     "@chemdraft/plugin-api": "file:./vendor/chemdraft-plugin-api-0.1.0.tgz",
+    "onnxruntime-web": "1.22.0",
     "openchemlib": "^9.22.1",
     "zod": "^3.25.76"
   },

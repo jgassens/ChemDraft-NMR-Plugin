@@ -111,11 +111,40 @@ export interface NmrMultiplet {
   couplings: readonly NmrCoupling[];
 }
 
+/** Method label every resonance carries (ABSTENTION.md section 5). */
+export type NmrResonanceMethod = "GNN prediction" | "HOSE lookup";
+
+/** Tier of a GNN prediction (ABSTENTION.md section 3). A name only, never a probability. */
+export type NmrModelTier = "high" | "medium" | "low";
+
+/** The HOSE lookup's match for the same atoms, shown beside a GNN prediction. */
+export interface NmrReferenceLookup {
+  method: "HOSE lookup";
+  deltaPpm: number;
+  matchedSphere: number;
+  sampleCount: number;
+  environmentCode?: string;
+}
+
 export interface NmrResonance {
   id: string;
   nucleus: NmrNucleus;
   /** Origin of the primary shift. Optional only for older schema-v1 session data. */
-  source?: "lookup" | "rule-estimate";
+  source?: "lookup" | "rule-estimate" | "model";
+  /**
+   * "GNN prediction" or "HOSE lookup" (rule estimates and HOSE matches shown as the fallback are
+   * both "HOSE lookup"). Optional only for session data that predates the GNN.
+   */
+  method?: NmrResonanceMethod;
+  /** Tier of a GNN prediction; absent for HOSE lookup values, which keep their own match tiers. */
+  tier?: NmrModelTier;
+  /** For a GNN prediction: the HOSE match for the same atoms, when one exists. */
+  reference?: NmrReferenceLookup;
+  /** True when |GNN − HOSE| exceeds the frozen agreement band. The GNN value is reported with tier
+   *  low and both values are shown; they are never averaged. */
+  disagreesWithReference?: boolean;
+  /** For a HOSE lookup value shown because the GNN declined these atoms: the decline rules. */
+  modelDeclines?: readonly string[];
   deltaPpm: number;
   atomRefs: readonly NmrAtomReference[];
   /** Predicted count of equivalent nuclei. This is NOT an experimental integral. */
@@ -158,11 +187,25 @@ export interface NmrReferenceDatabase {
   dataChecksum?: string;
 }
 
+/** The trained model behind GNN predictions in a result. */
+export interface NmrPredictionModel {
+  id: string;
+  version: string;
+  /** Nuclei with at least one GNN prediction in this result. */
+  nuclei: readonly NmrNucleus[];
+  /** Data the weights were trained on, and that data's license. */
+  trainingData: string;
+  dataLicense: string;
+}
+
 export interface NmrPredictionBackend extends NmrReferenceDatabase {
   id: string;
   method: string;
   /** Separate reference provenance when phosphorus and other nuclei are requested together. */
   phosphorusDatabase?: NmrReferenceDatabase;
+  /** Present when GNN predictions are part of the result. The reference database fields above
+   *  then describe the HOSE lookup used as cross-check and fallback. */
+  model?: NmrPredictionModel;
 }
 
 export interface NmrStructureAtom {

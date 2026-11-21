@@ -7,7 +7,7 @@ On 2026-11-20 the owner decided that a per-atom graph neural network (GNN) will 
 - the parity script [`scripts/gnn-feature-parity.ts`](../scripts/gnn-feature-parity.ts)
 - the tests in [`src/tests/gnnFeaturize.test.ts`](../src/tests/gnnFeaturize.test.ts)
 
-There is no model, model runtime or UI here yet.
+The trained model, its runtime and the decline and tier rules are described in [gnn-model.md](gnn-model.md).
 
 The featurizer is a pure function of an OpenChemLib molecule. It imports no Node-only module and never reads the clock, a random source, the locale or the platform. It never mutates the caller's molecule. The same code runs in Node (training extract) and in the plugin's Web Worker. A test checks the module sources for these dependencies.
 
@@ -157,3 +157,5 @@ The tests already check three paths against the direct call:
 - the script itself.
 
 All three give the same bytes. The training extract should featurize through this dump, or through `featurizeMolecule` on `parseNmredataMolecule(…).molecule`. A test checks that this gives the same features as the plugin parse, so assignments map through `oclAtomByMolfileIndex` and `heavyAtomIndexMap`.
+
+The prediction path itself is checked too. `scripts/gnn-worker-parity.ts` sends every molecule of an experiment's validation partition through the worker message handler to the production predictor (`GnnShiftPredictor`) and compares the features it computed, and the tensors it hands the model, with the training dump. For run nmrexp-02 all 4,667 validation records matched byte for byte; see [gnn-model.md](gnn-model.md#verification).

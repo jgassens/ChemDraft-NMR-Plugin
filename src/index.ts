@@ -57,6 +57,38 @@ export {
 
 export { OclHosePredictor, type OclHosePredictorOptions } from "./providers/ocl/OclHosePredictor";
 export {
+  GnnShiftPredictor,
+  GNN_HOSE_BACKEND_ID,
+  MODEL_LOOKUP_DISAGREEMENT_PHRASE,
+  type GnnShiftPredictorOptions
+} from "./providers/gnn/GnnShiftPredictor";
+export {
+  GnnModelRuntime,
+  ONNX_RUNTIME_WEB_VERSION,
+  type GnnModel,
+  type GnnModelInput,
+  type GnnModelProvider,
+  type GnnModelState,
+  type GnnModelUnavailableReason
+} from "./providers/gnn/runtime";
+export {
+  GNN_AGREEMENT_BANDS,
+  GNN_MEASURED_ACCURACY,
+  GNN_METHOD_LABEL,
+  GNN_MODEL_FILES,
+  GNN_MODEL_RELEASE,
+  HOSE_METHOD_LABEL,
+  type GnnNucleus
+} from "./providers/gnn/modelRelease";
+export {
+  assessNode,
+  gnnTier,
+  shippedDecision,
+  GNN_DECLINE_RULES,
+  type GnnDeclineRule,
+  type GnnTier
+} from "./providers/gnn/domainRules";
+export {
   estimateProtonIncrement,
   PROTON_INCREMENT_ESTIMATOR_ID,
   PROTON_INCREMENT_ESTIMATOR_VERSION,

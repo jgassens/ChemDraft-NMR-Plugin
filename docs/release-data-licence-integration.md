@@ -1,7 +1,8 @@
 # Data license integration
 
-Root `package.json` declares two bundled datasets under `dataLicenses`.
-The NMRShiftDB2-derived ¹H/¹³C shift statistics use the **nmrshiftdb2 Database
+Root `package.json` declares three bundled data assets under `dataLicenses`.
+The NMRShiftDB2-derived ¹H/¹³C shift statistics and the NMRShiftDB2-derived GNN
+model weights (with their training-domain counts) use the **nmrshiftdb2 Database
 License (ODbL-derived)**. The Ilm-NMR-P31-derived ³¹P shift statistics use
 **BSD-3-Clause**. The plugin code uses MIT.
 [NMRShiftDB2 notice](../src/providers/ocl/NMRSHIFTDB2_LICENSE.md) · [Ilm-NMR-P31 license](../src/providers/ocl/ILM_NMR_P31_LICENSE.md)
@@ -24,8 +25,10 @@ original relative path, root `package.json`, and `THIRD_PARTY_NOTICES.md` into t
 staged package. It recreates the ZIP and SHA-256 sidecar after those additions.
 Missing notices fail packaging and remove the ZIP and sidecar.
 
-Vite compiles both databases into the predictor's JavaScript chunks. Each `path`
-identifies the source JSON. Both notice files keep their source paths in the ZIP.
+Vite compiles both databases and the GNN training-domain counts into the
+predictor's JavaScript chunks, and emits the two GNN model files (`1H.fp16-*.onnx`,
+`13C.fp16-*.onnx`) as package files. Each `path` identifies the source artifact; the
+model entry lists its `files`. Both notice files keep their source paths in the ZIP.
 
 ## Verification
 

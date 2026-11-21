@@ -15,6 +15,12 @@ const datasetPath = "src/providers/ocl/nmrshiftdb2.database.json";
 const noticeFile = "src/providers/ocl/NMRSHIFTDB2_LICENSE.md";
 const phosphorusDatasetPath = "src/providers/ocl/ilm-nmr-p31.database.json";
 const phosphorusNoticeFile = "src/providers/ocl/ILM_NMR_P31_LICENSE.md";
+const modelPath = "src/providers/gnn/model";
+const modelFiles = [
+  "src/providers/gnn/model/1H.fp16.onnx",
+  "src/providers/gnn/model/13C.fp16.onnx",
+  "src/providers/gnn/model/domain.json"
+];
 const roots: string[] = [];
 
 afterEach(() => {
@@ -39,7 +45,7 @@ function expectPackagedNotices(zipPath: string): void {
 }
 
 describe("bundled database licenses", () => {
-  it("declares both datasets in package metadata separately from MIT code", () => {
+  it("declares every bundled data asset in package metadata separately from MIT code", () => {
     expect(packageJson.license).toBe("MIT");
     expect(packageJson.dataLicenses).toEqual([
       {
@@ -58,8 +64,18 @@ describe("bundled database licenses", () => {
         copyright: "(c) 2026 Robert Geitner",
         noticeFile: phosphorusNoticeFile,
         note: "redistributed with the author's permission (owner, 2026-11-20)"
+      },
+      {
+        name: "NMRShiftDB2-derived GNN shift model weights and training-domain counts",
+        path: modelPath,
+        files: modelFiles,
+        license: "nmrshiftdb2 Database License (ODbL-derived)",
+        noticeFile
       }
     ]);
+    for (const file of modelFiles) {
+      expect(existsSync(join(pluginRoot, file))).toBe(true);
+    }
     for (const { path } of packageJson.dataLicenses) {
       expect(existsSync(join(pluginRoot, path))).toBe(true);
     }
@@ -67,6 +83,10 @@ describe("bundled database licenses", () => {
     expect(notice).toContain("nmrshiftdb2 contributors");
     expect(notice).toContain("Share-alike");
     expect(notice).toContain("nmrshiftdb2datalicense.txt");
+    // The GNN weights are NMRShiftDB2-derived data: same terms as the HOSE table, never MIT.
+    expect(notice).toContain("GNN shift model weights");
+    for (const file of modelFiles) expect(notice).toContain(file);
+    expect(packageJson.dataLicenses.filter((entry) => entry.license.includes("MIT"))).toEqual([]);
     const phosphorusNotice = readFileSync(join(pluginRoot, phosphorusNoticeFile), "utf8");
     expect(phosphorusNotice).toContain("BSD 3-Clause License");
     expect(phosphorusNotice).toContain("Copyright (c) 2026, Robert Geitner");

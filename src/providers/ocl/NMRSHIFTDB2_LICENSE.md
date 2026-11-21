@@ -32,5 +32,23 @@ commercial use**, with these obligations relevant here:
 
 Rebuild with `scripts/build-database.ts` from the upstream NMReDATA export.
 
+## GNN shift model weights (also NMRShiftDB2-derived)
+
+The plugin also bundles a trained graph neural network (GNN) for ¹H and ¹³C shifts. Its
+weights were fitted to NMRShiftDB2 atom assignments, so they are treated as NMRShiftDB2-derived
+data and are offered under the **same nmrshiftdb2 Database License** as the statistics above,
+never under the plugin's MIT code license. The same share-alike, attribution and
+open-source-software terms apply.
+
+| Field | Value |
+|---|---|
+| Asset | GNN shift model weights (ONNX, fp16-stored) and training-domain counts (ChemDraft-derived) |
+| Files | `src/providers/gnn/model/1H.fp16.onnx`, `src/providers/gnn/model/13C.fp16.onnx`, `src/providers/gnn/model/domain.json` |
+| In the package | `1H.fp16-*.onnx` and `13C.fp16-*.onnx` at the ZIP root; the domain counts are compiled into `nmrWorker-*.js` and `GnnShiftPredictor-*.js` |
+| Upstream source | NMRShiftDB2 — `nmrshiftdb2rawdata.nmredata.sd` (NMReDATA export, SHA-256 `831a31e78b004a308c7c40989e27d30698a34c506e722a91c78b6ed448fc4720`) |
+| Original authors | nmrshiftdb2 contributors |
+| Upstream license | nmrshiftdb2 Database License (derived from ODbL) — https://nmrshiftdb.nmr.uni-koeln.de/nmrshiftdbhtml/nmrshiftdb2datalicense.txt |
+| Modifications | Training-partition records of a Murcko-scaffold split → plugin-computed atom and bond features → per-atom GNN regression (experiment run nmrexp-02). `domain.json` holds per-element and per-charge-state training atom counts and a size percentile. No structures are stored. |
+
 To ship a purely permissive/attribution-only alternative, swap in a CC BY 4.0
 corpus such as NMRexp (see ADR-0014); the engine is unchanged.

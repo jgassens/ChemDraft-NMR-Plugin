@@ -74,7 +74,18 @@ const NmrMultipletSchema = z.object({
 const NmrResonanceSchema = z.object({
   id: z.string(),
   nucleus: NmrNucleusSchema,
-  source: z.enum(["lookup", "rule-estimate"]).optional(),
+  source: z.enum(["lookup", "rule-estimate", "model"]).optional(),
+  method: z.enum(["GNN prediction", "HOSE lookup"]).optional(),
+  tier: z.enum(["high", "medium", "low"]).optional(),
+  reference: z.object({
+    method: z.literal("HOSE lookup"),
+    deltaPpm: z.number(),
+    matchedSphere: z.number(),
+    sampleCount: z.number(),
+    environmentCode: z.string().optional()
+  }).optional(),
+  disagreesWithReference: z.boolean().optional(),
+  modelDeclines: z.array(z.string()).optional(),
   deltaPpm: z.number(),
   atomRefs: z.array(NmrAtomReferenceSchema),
   equivalentNuclei: z.number().optional(),
@@ -108,7 +119,14 @@ const NmrPredictionBackendSchema = z.object({
   attribution: NmrReferenceDatabaseSchema.shape.attribution,
   source: NmrReferenceDatabaseSchema.shape.source,
   dataChecksum: NmrReferenceDatabaseSchema.shape.dataChecksum,
-  phosphorusDatabase: NmrReferenceDatabaseSchema.optional()
+  phosphorusDatabase: NmrReferenceDatabaseSchema.optional(),
+  model: z.object({
+    id: z.string(),
+    version: z.string(),
+    nuclei: z.array(NmrNucleusSchema),
+    trainingData: z.string(),
+    dataLicense: z.string()
+  }).optional()
 });
 
 const NmrPredictionWarningSchema = z.object({

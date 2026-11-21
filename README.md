@@ -5,6 +5,11 @@ Select a structure and use the **Analyze** menu to see a predicted ¹³C, ¹H
 (experimental), or ³¹P stick spectrum and shift table. The host stores predictions
 and flags them as stale when the structure changes.
 
+¹H and ¹³C shifts come from a bundled **graph neural network (GNN)**, with the HOSE
+lookup over NMRShiftDB2 statistics as cross-check and fallback; ³¹P shifts come
+from the HOSE lookup alone. Every shift is labeled **GNN prediction** or **HOSE
+lookup**. See [GNN shift predictor](docs/gnn-model.md).
+
 This repo builds the **installable plugin package** — the `nmr-predictor-<version>.zip`
 a ChemDraft host downloads and installs (ADR-0029/M35). It compiles only against
 the vendored ChemDraft plugin SDK; no monorepo is required.
@@ -20,6 +25,9 @@ In the ChemDraft desktop app:
 1. Choose **Plugins → Add or Remove Plugins…**.
 2. Select **Add plugin from package…** and choose the downloaded ZIP.
 3. Review the plugin identity and declared permissions, then select **Install**.
+   Besides selection, analysis and UI access, the plugin declares `model.load`:
+   it loads the GNN model files bundled in the package. It downloads nothing and
+   needs no network access.
 4. Select a structure and use the **Analyze** menu to predict ¹³C, ¹H
    (experimental), or ³¹P shifts.
 
@@ -56,8 +64,8 @@ a newer SDK, drop the new tarballs into `vendor/` and update the `file:` version
 npm install
 ```
 
-This resolves the two vendored SDK tarballs from `vendor/` plus `openchemlib` and
-`zod` from the public npm registry.
+This resolves the two vendored SDK tarballs from `vendor/` plus `openchemlib`,
+`onnxruntime-web` (pinned to 1.22.0) and `zod` from the public npm registry.
 
 ## Build the release package
 
@@ -85,7 +93,25 @@ tree.
 
 ## Providers
 
-- **OCL-native (default)** — uses OpenChemLib to derive atom environment codes and
+- **GNN-first (default)** — for ¹H and ¹³C, a per-atom graph neural network trained
+  on NMRShiftDB2 assignments runs locally through ONNX Runtime Web (WebAssembly, one
+  thread) on the plugin's own schema-1 features. The model files ship inside the
+  package (about 19 MB with the runtime), load only on the first ¹H/¹³C prediction,
+  and must match their frozen SHA-256 values. The GNN declines atoms outside its
+  training domain (rare elements, rare charge or radical states, isotope labels other
+  than ²H/¹³C, molecules above 103 heavy atoms, unsupported structures); those atoms,
+  and every atom when the model is unavailable, show the OCL-native HOSE lookup below,
+  labeled **HOSE lookup**. Each GNN prediction carries a tier: **high** (a HOSE match
+  at sphere ≥ 3 agrees within 0.65 ppm for ¹H or 4.0 ppm for ¹³C), **medium** (a
+  sphere 1–2 match agrees, or no match and the atom is well inside the training
+  domain), or **low** (the GNN and the HOSE lookup disagree beyond that band, or the
+  atom is in the domain only by the minimum counts). On a disagreement the GNN value
+  is reported with tier low, the warning "model and reference lookup disagree", and
+  both values; they are never averaged. Tiers are names, not probabilities. The
+  rules were fixed before the test set was opened. See
+  [GNN shift predictor](docs/gnn-model.md).
+- **OCL-native HOSE lookup** (cross-check and fallback for ¹H/¹³C; the ³¹P
+  predictor) — uses OpenChemLib to derive atom environment codes and
   looks them up in statistics compiled from **NMRShiftDB2** assignments
   (the database does not mark which are experimental) (deepest-sphere-first, with honest coverage warnings). Requests honor
   either the database median or mean. Every ¹H HOSE match whose chemistry is
@@ -140,10 +166,11 @@ tree.
 - **Fixture** — deterministic synthetic data used for tests and explicit fixture
   provider requests.
 
-Both implement the same `NmrPredictor` interface, so the command / worker / panel
+All implement the same `NmrPredictor` interface, so the command / worker / panel
 are provider-agnostic. Prediction runs off the main thread in a Web Worker
 (request-id protocol). Where `Worker` is unavailable, the fallback runs the real
-OCL-native predictor in-thread; it does not substitute fixture values.
+GNN-first predictor (with its HOSE fallback) in-thread; it does not substitute
+fixture values.
 
 Deuterium on any host, including O/N (molfile `D` or explicit `H` with `M ISO`
 mass 2), is matched as hydrogen for both ¹H/¹³C database environments and rule
@@ -163,6 +190,21 @@ See [deuterated environment matching](docs/deuterated-environments.md) for examp
 and the warning range.
 
 ## ¹H and ¹³C accuracy
+
+### GNN predictions
+
+| Nucleus | MAE (ppm) | Partition |
+| --- | ---: | --- |
+| ¹H | 0.277 | scaffold-held-out test, 10% of Murcko scaffolds |
+| ¹³C | 1.75 | scaffold-held-out test, 10% of Murcko scaffolds |
+
+These are the GNN's errors on every scored atom of the **scaffold-held-out test,
+10% of Murcko scaffolds** partition, measured at the **second, non-independent
+opening** of that test set (the first opening, on 2026-11-20, was not certified as
+a one-shot test). They do not apply to HOSE lookup values. See
+[GNN shift predictor](docs/gnn-model.md).
+
+### HOSE lookup
 
 The ¹H and ¹³C lookup keys account for neighbor formal charges at every HOSE
 sphere. In the held-out NMRShiftDB2 benchmark (OpenChemLib structure-idcode
@@ -204,6 +246,11 @@ reports chemical shifts and leaves solvent effects and ³¹P splitting unmodeled
 
 ## ⚠️ Data provenance
 
+- The GNN model weights (`src/providers/gnn/model/*.onnx`) and their training-domain
+  counts (`src/providers/gnn/model/domain.json`) were fitted to NMRShiftDB2
+  assignments. They are NMRShiftDB2-derived data under the **nmrshiftdb2 Database
+  License** (ODbL-derived), not MIT — see `src/providers/ocl/NMRSHIFTDB2_LICENSE.md`.
+  ONNX Runtime Web 1.22.0, which runs them, is MIT-licensed (Microsoft).
 - The OCL provider's `src/providers/ocl/nmrshiftdb2.database.json` is a
   **derivative database** of aggregated shift statistics (no structures) under the
   **nmrshiftdb2 Database License** (ODbL-derived; commercial use OK, share-alike,
@@ -238,10 +285,12 @@ src/
 ├── workerEntry.ts     the worker entry the release bundles into entry.js
 ├── domain/            serializable contracts, errors, warnings, schemas
 ├── application/       normalization, selection mapping, status, the command
-├── providers/         fixture/ (synthetic) and ocl/ (NMRShiftDB2 and Ilm-NMR-P31, default)
+├── providers/         gnn/ (default ¹H/¹³C GNN, featurizer, ONNX runtime, decline/tier rules),
+│                      ocl/ (HOSE lookup: NMRShiftDB2 and Ilm-NMR-P31), fixture/ (synthetic)
 ├── worker/            protocol, core handler, entry, client
 └── report/            declarative panel composition + stick-spectrum SVG
 scripts/build-database.ts   compile NMReDATA/SDF exports into bundled databases
+scripts/gnn-worker-parity.ts  prove worker-path GNN feature parity on an experiment extraction
 tools/                      vendored packaging tool (plugin-package + boundary/gate checks)
 vendor/                     vendored SDK tarballs (ADR-0031)
 ```

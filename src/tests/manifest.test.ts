@@ -30,6 +30,19 @@ describe("nmrPredictorManifest", () => {
     expect(parsed.contributes.panels[0]?.id).toBe(nmrPredictorPanelId);
   });
 
+  it("declares model.load for the bundled GNN and no download or network permission", () => {
+    expect(nmrPredictorManifest.permissions).toEqual(["selection.read", "analysis.write", "ui.menu", "ui.panel", "model.load"]);
+    const parsed = parsePluginManifest(nmrPredictorManifest);
+    expect(parsed.permissions).toContain("model.load");
+    for (const permission of ["model.download", "network.fetch", "ml.inference", "filesystem.read"]) {
+      expect(parsed.permissions).not.toContain(permission);
+    }
+    // Commands keep their existing requirements, so the HOSE fallback never depends on the model.
+    for (const command of parsed.contributes.commands) {
+      expect(command.requiredPermissions).not.toContain("model.load");
+    }
+  });
+
   it("registers through the real host, with all contribution command references resolvable", () => {
     const host = new PluginHost();
     // assertContributionCommands (M2) rejects menu/panel/analyzer entries referencing a

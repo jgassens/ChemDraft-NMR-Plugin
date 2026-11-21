@@ -9,10 +9,54 @@
   second OCL runtime.
 - **zod** (MIT) — runtime validation of the serializable prediction request/result.
 - **@chemdraft/plugin-api** (workspace) — the generic plugin contracts.
+- **onnxruntime-web 1.22.0** (MIT, Copyright (c) Microsoft Corporation) — runs the
+  bundled GNN models on its single-threaded WebAssembly backend inside the plugin
+  worker. The package ships its JavaScript (`ort.wasm.bundle.min-*.js`, which
+  includes `onnxruntime-common` 1.22.0, MIT, Microsoft), its WebAssembly loader
+  module (`ort-wasm-simd-threaded-*.mjs`) and its WebAssembly binary
+  (`ort-wasm-simd-threaded-*.wasm`), all unmodified. The WebAssembly binary is
+  ONNX Runtime compiled with Emscripten; the open-source components it
+  statically links are listed, with their licenses, in ONNX Runtime's
+  [ThirdPartyNotices.txt for v1.22.0](https://github.com/microsoft/onnxruntime/blob/v1.22.0/ThirdPartyNotices.txt).
+  License text:
+
+  ```
+  MIT License
+
+  Copyright (c) Microsoft Corporation
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+  ```
 
 ## Prediction data
 
-Two providers ship, with separately-tracked data:
+The ¹H/¹³C predictor is a GNN with the OCL-native HOSE lookup as cross-check and
+fallback; its model weights are separately-tracked data:
+
+- **GNN shift model weights** (`src/providers/gnn/model/1H.fp16.onnx`,
+  `src/providers/gnn/model/13C.fp16.onnx`) and its **training-domain counts**
+  (`src/providers/gnn/model/domain.json`) — fitted to NMRShiftDB2 atom
+  assignments, so offered under the same **nmrshiftdb2 Database License**
+  (ODbL-derived) as the HOSE statistics, never under MIT. They contain no
+  structures. Provenance and license: `src/providers/ocl/NMRSHIFTDB2_LICENSE.md`.
+
+Two lookup providers ship, with separately-tracked data:
 
 - **Fixture provider** (`providers/fixture/fixtureDatabase.ts`) — **ChemDraft-owned
   synthetic fixtures**, not derived from any experimental dataset. Used for
@@ -31,10 +75,11 @@ Two providers ship, with separately-tracked data:
   [Dataset paper](https://doi.org/10.1186/s13321-023-00792-y) · [clacor/Ilm-NMR-P31 at ead6f914d2bdfb60e4befea72ea503d32978d358](https://github.com/clacor/Ilm-NMR-P31/tree/ead6f914d2bdfb60e4befea72ea503d32978d358) · [License text](src/providers/ocl/ILM_NMR_P31_LICENSE.md)
 
 The plugin's original **code is MIT-licensed**, as recorded in `LICENSE`. The root
-`package.json` declares the compiled data assets and their separate licenses under
-`dataLicenses`. The panel's "Reference database" section shows the license for each
-database used. The installable package includes that package metadata, this notice,
-and both database license files.
+`package.json` declares the compiled data assets (both HOSE tables and the GNN
+model weights) and their separate licenses under `dataLicenses`. The panel's
+"Reference database" section shows the license for each database used, and its "GNN
+model" section shows the model's training data and license. The installable package
+includes that package metadata, this notice, and both data license files.
 
 ## Rule-parameter sources
 

@@ -21,7 +21,15 @@ export const NmrWarningCodes = {
   SecondOrderPatternLikely: "NMR_SECOND_ORDER_PATTERN_LIKELY",
   StereoNonequivalentMerged: "NMR_STEREO_NONEQUIVALENT_MERGED",
   PotentiallyDiastereotopicHydrogens: "NMR_POTENTIALLY_DIASTEREOTOPIC_HYDROGENS",
-  PotentiallyDiastereotopicMethyls: "NMR_POTENTIALLY_DIASTEREOTOPIC_METHYLS"
+  PotentiallyDiastereotopicMethyls: "NMR_POTENTIALLY_DIASTEREOTOPIC_METHYLS",
+  /** The GNN model for a nucleus is missing, failed its checksum, or failed to load: HOSE lookup used. */
+  GnnModelUnavailable: "NMR_GNN_MODEL_UNAVAILABLE",
+  /** GNN inference failed for this structure: HOSE lookup used. */
+  GnnInferenceFailed: "NMR_GNN_INFERENCE_FAILED",
+  /** The GNN declined atoms under ABSTENTION.md section 1; the message names the rules. */
+  GnnDeclined: "NMR_GNN_DECLINED",
+  /** |GNN − HOSE lookup| exceeds the agreement band (ABSTENTION.md section 4). */
+  ModelLookupDisagreement: "NMR_MODEL_LOOKUP_DISAGREEMENT"
 } as const;
 
 export type NmrWarningCode = (typeof NmrWarningCodes)[keyof typeof NmrWarningCodes];

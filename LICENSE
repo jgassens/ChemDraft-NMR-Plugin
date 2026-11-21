@@ -24,24 +24,34 @@ SOFTWARE.
 
 ## Scope: the MIT grant above covers this plugin's original code only
 
-The two bundled datasets and the third-party dependencies retain their own
+The three bundled data assets and the third-party dependencies retain their own
 licenses.
 
 - **NMRShiftDB2-derived HOSE shift statistics** are a derivative database under
   the **nmrshiftdb2 Database License (ODbL-derived)**. The source file is
   `src/providers/ocl/nmrshiftdb2.database.json`. The package embeds the data in
-  `nmrWorker-*.js` and `OclHosePredictor-*.js` at the ZIP root. The license
+  `nmrWorker-*.js` and `GnnShiftPredictor-*.js` at the ZIP root. The license
   permits commercial use and requires share-alike and attribution on
   redistribution, including redistribution of the plugin ZIP. See
   `src/providers/ocl/NMRSHIFTDB2_LICENSE.md` for provenance and the license text.
 
+- **NMRShiftDB2-derived GNN shift model weights and training-domain counts**
+  are offered under the same **nmrshiftdb2 Database License (ODbL-derived)**,
+  not under MIT. The source files are `src/providers/gnn/model/1H.fp16.onnx`,
+  `src/providers/gnn/model/13C.fp16.onnx` and `src/providers/gnn/model/domain.json`.
+  The package ships the weights as `1H.fp16-*.onnx` and `13C.fp16-*.onnx` at the
+  ZIP root and embeds the domain counts in `nmrWorker-*.js` and
+  `GnnShiftPredictor-*.js`. See `src/providers/ocl/NMRSHIFTDB2_LICENSE.md`.
+
 - **Ilm-NMR-P31-derived ³¹P HOSE shift statistics** are licensed under
   **BSD-3-Clause**, copyright (c) 2026 Robert Geitner. The source file is
   `src/providers/ocl/ilm-nmr-p31.database.json`. The package embeds the data in
-  `nmrWorker-*.js` and `OclHosePredictor-*.js` at the ZIP root. See
+  `nmrWorker-*.js` and `GnnShiftPredictor-*.js` at the ZIP root. See
   `src/providers/ocl/ILM_NMR_P31_LICENSE.md` for the license text.
 
-- **Third-party dependencies** — openchemlib (BSD-3-Clause), zod (MIT) — remain
+- **Third-party dependencies** — openchemlib (BSD-3-Clause), zod (MIT),
+  onnxruntime-web 1.22.0 (MIT, Microsoft; shipped as `ort.wasm.bundle.min-*.js`,
+  `ort-wasm-simd-threaded-*.mjs` and `ort-wasm-simd-threaded-*.wasm`) — remain
   under their own terms. See `THIRD_PARTY_NOTICES.md`.
 
 Nothing in the MIT grant above conveys any right to those materials beyond their

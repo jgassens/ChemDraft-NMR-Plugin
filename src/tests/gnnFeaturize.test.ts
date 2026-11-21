@@ -352,10 +352,20 @@ describe("GNN feature schema", () => {
     expect(GNN_NEIGHBOR_CHARGE_SPHERES).toBe(MAX_SPHERES);
   });
 
-  it("keeps the featurizer free of Node-only, clock, random and locale dependencies", () => {
+  it("keeps the featurizer and the GNN prediction path free of Node-only, clock, random and locale dependencies", () => {
     const directory = join(REPO_ROOT, "src/providers/gnn");
     const sources = readdirSync(directory).filter((file) => file.endsWith(".ts"));
-    expect(sources.sort()).toEqual(["canonicalDump.ts", "featurize.ts"]);
+    // Every module here runs in the plugin worker; the same purity rule covers all of them.
+    expect(sources.sort()).toEqual([
+      "GnnShiftPredictor.ts",
+      "canonicalDump.ts",
+      "domainRules.ts",
+      "featurize.ts",
+      "modelRelease.ts",
+      "runtime.ts",
+      "tensors.ts",
+      "trainingDomain.ts"
+    ]);
     for (const file of sources) {
       const source = readFileSync(join(directory, file), "utf8");
       expect(source, file).not.toMatch(/from\s+["']node:|require\(|\bprocess\.|\bBuffer\b/);

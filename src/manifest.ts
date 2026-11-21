@@ -20,9 +20,11 @@ export const nmrPredictorManifest: PluginManifest = {
   apiVersion: "^0.1.25",
   license: "MIT",
   description:
-    "HOSE-fragment NMR shift prediction using NMRShiftDB2 assignments for ¹H/¹³C and Ilm-NMR-P31 assignments for ³¹P. NMRShiftDB2 does not identify which assignments are experimental. Applicable ¹H/¹³C rule estimates are labeled. Omitted environments carry a warning. ¹H multiplicity and couplings are first-order topology-based estimates. Stick height represents the predicted number of equivalent nuclei.",
+    "¹H/¹³C shifts from a graph neural network (GNN) trained on NMRShiftDB2 assignments, run locally from model files bundled in the plugin, with HOSE-fragment lookup over NMRShiftDB2 statistics as cross-check and fallback; ³¹P shifts by HOSE-fragment lookup over Ilm-NMR-P31 assignments. NMRShiftDB2 does not identify which assignments are experimental. Each shift is labeled GNN prediction or HOSE lookup; GNN predictions carry a high, medium or low tier. Applicable ¹H/¹³C rule estimates are labeled. Omitted environments carry a warning. ¹H multiplicity and couplings are first-order topology-based estimates. Stick height represents the predicted number of equivalent nuclei.",
   entry: "dist/plugin.js",
-  permissions: ["selection.read", "analysis.write", "ui.menu", "ui.panel"],
+  // model.load: the bundled GNN model files are loaded (lazily, on the first ¹H/¹³C prediction) from
+  // the installed package. Nothing is downloaded; there is no network access.
+  permissions: ["selection.read", "analysis.write", "ui.menu", "ui.panel", "model.load"],
   contributes: {
     commands: [
       {
@@ -30,7 +32,7 @@ export const nmrPredictorManifest: PluginManifest = {
         title: "Predict ¹³C NMR Shifts",
         category: "Analyze",
         description:
-          "Predict ¹³C shifts for the selected structure by HOSE-fragment lookup over NMRShiftDB2-derived statistics.",
+          "Predict ¹³C shifts for the selected structure with the bundled GNN, cross-checked against HOSE-fragment lookup over NMRShiftDB2-derived statistics (the fallback where the GNN declines).",
         requiredPermissions: ["selection.read", "analysis.write"],
         enabled: true
       },
@@ -38,7 +40,8 @@ export const nmrPredictorManifest: PluginManifest = {
         id: nmrPredictProtonCommandId,
         title: "Predict ¹H NMR Shifts (experimental)",
         category: "Analyze",
-        description: "Experimental ¹H prediction; labile protons are omitted by default.",
+        description:
+          "Experimental ¹H prediction with the bundled GNN, cross-checked against HOSE-fragment lookup (the fallback where the GNN declines); labile protons are omitted by default.",
         requiredPermissions: ["selection.read", "analysis.write"],
         enabled: true
       },
