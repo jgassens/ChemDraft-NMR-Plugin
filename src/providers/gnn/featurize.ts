@@ -56,10 +56,10 @@ export const GNN_ATOM_FEATURE_NAMES: readonly string[] = [
   "aromatic",
   "inRing",
   "smallestRingSize/8",
-  "atomParity=none",
-  "atomParity=odd",
-  "atomParity=even",
-  "atomParity=unknown",
+  "atomCIP=none",
+  "atomCIP=R",
+  "atomCIP=S",
+  "atomCIP=unknown",
   ...Array.from({ length: GNN_NEIGHBOR_CHARGE_SPHERES }, (_, index) => [
     `sphere${index + 1}PositiveCharge`,
     `sphere${index + 1}NegativeCharge`
@@ -74,21 +74,17 @@ export const GNN_BOND_FEATURE_NAMES: readonly string[] = [
   "order=other",
   "inRing",
   "delocalized",
-  "bondParity=none",
-  "bondParity=1",
-  "bondParity=2",
-  "bondParity=unknown",
-  "stereo=none",
-  "stereo=up",
-  "stereo=down",
-  "stereo=cross"
+  "bondCIP=none",
+  "bondCIP=E",
+  "bondCIP=Z",
+  "bondCIP=unknown"
 ];
 
 export const GNN_ATOM_FEATURE_COUNT = GNN_ATOM_FEATURE_NAMES.length;
 export const GNN_BOND_FEATURE_COUNT = GNN_BOND_FEATURE_NAMES.length;
 
 export interface GnnBondFeatures {
-  /** Node index of `getBondAtom(0, bond)`; for an up/down bond this is the stereo (narrow) end. */
+  /** Node index of `getBondAtom(0, bond)`. No feature depends on which end is `from`. */
   from: number;
   /** Node index of `getBondAtom(1, bond)`. */
   to: number;
@@ -202,12 +198,7 @@ export function featurizeMolecule(molecule: OCL.Molecule): GnnMoleculeFeatures {
     prepared.isAromaticAtom(atom) ? 1 : 0,
     prepared.isRingAtom(atom) ? 1 : 0,
     Math.min(prepared.getAtomRingSize(atom), GNN_FEATURE_SCALES.ringSizeCap) / GNN_FEATURE_SCALES.ringSizeCap,
-    ...oneHot(prepared.getAtomParity(atom), [
-      OCL.Molecule.cAtomParityNone,
-      OCL.Molecule.cAtomParity1,
-      OCL.Molecule.cAtomParity2,
-      OCL.Molecule.cAtomParityUnknown
-    ]),
+    ...atomCipOneHot(prepared, atom),
     ...neighborCharges[node]
   ]);
 
@@ -224,8 +215,9 @@ export function featurizeMolecule(molecule: OCL.Molecule): GnnMoleculeFeatures {
 /**
  * The HOSE path's molecule preparation (`prepareProductionLookup` in ../ocl/productionLookup.ts), step
  * for step: an index-preserving compact copy, plain explicit hydrogens removed, atom-map numbers
- * cleared, rings perceived, heavy-atom indices verified. Parities (`cHelperParities`) are perceived
- * on top of that for the stereo features; that level includes everything `cHelperRings` computes.
+ * cleared, rings perceived, heavy-atom indices verified. Cahn-Ingold-Prelog descriptors
+ * (`cHelperCIP`) are perceived on top of that for the stereo features; that level includes everything
+ * `cHelperRings` and `cHelperParities` compute.
  */
 function prepareGnnMolecule(molecule: OCL.Molecule): OCL.Molecule {
   if ((molecule.getHelperArrayStatus() & OCL.Molecule.cHelperNeighbours) === 0) {
@@ -242,7 +234,7 @@ function prepareGnnMolecule(molecule: OCL.Molecule): OCL.Molecule {
   for (let atom = 0; atom < prepared.getAllAtoms(); atom += 1) prepared.setAtomMapNo(atom, 0, false);
   prepared.ensureHelperArrays(OCL.Molecule.cHelperRings);
   try {
-    prepared.ensureHelperArrays(OCL.Molecule.cHelperParities);
+    prepared.ensureHelperArrays(OCL.Molecule.cHelperCIP);
   } catch (cause) {
     throw new GnnFeaturizationError(
       GnnFeaturizationErrorCodes.StereoPerceptionFailed,
@@ -287,24 +279,43 @@ function bondFeatures(molecule: OCL.Molecule, bond: number): number[] {
     molecule.getBondTypeSimple(bond) === OCL.Molecule.cBondTypeDelocalized;
   const order = molecule.getBondOrder(bond);
   const orderSlot = aromaticOrDelocalized ? 3 : order === 1 ? 0 : order === 2 ? 1 : order === 3 ? 2 : 4;
-  const stereo = molecule.getBondType(bond) & OCL.Molecule.cBondTypeMaskStereo;
   return [
     ...[0, 1, 2, 3, 4].map((slot) => (slot === orderSlot ? 1 : 0)),
     molecule.isRingBond(bond) ? 1 : 0,
     molecule.isDelocalizedBond(bond) ? 1 : 0,
-    ...oneHot(molecule.getBondParity(bond), [
-      OCL.Molecule.cBondParityNone,
-      OCL.Molecule.cBondParityEor1,
-      OCL.Molecule.cBondParityZor2,
-      OCL.Molecule.cBondParityUnknown
-    ]),
-    ...oneHot(stereo, [
-      0,
-      OCL.Molecule.cBondTypeUp & OCL.Molecule.cBondTypeMaskStereo,
-      OCL.Molecule.cBondTypeDown & OCL.Molecule.cBondTypeMaskStereo,
-      OCL.Molecule.cBondTypeCross & OCL.Molecule.cBondTypeMaskStereo
-    ])
+    ...bondCipOneHot(molecule, bond)
   ];
+}
+
+/**
+ * `[none, R, S, unknown]` for a stereo atom. R and S are OpenChemLib's Cahn-Ingold-Prelog descriptor
+ * (`getAtomCIPParity`), which does not depend on atom numbering, unlike `getAtomParity`. `unknown` is a
+ * stereo atom (`getAtomParity` not `cAtomParityNone`) without an R/S label: an undrawn or unknown
+ * configuration, a CIP "problem", or a configuration CIP cannot name (the relative cis/trans of
+ * 1,3-disubstituted cyclobutane). Whether an atom has a parity at all is numbering-independent; only
+ * its odd/even value is not, and that value is never read. Axial M (allenes) shares the R slot and P
+ * the S slot, as in OpenChemLib's `cAtomCIPParityRorM` / `cAtomCIPParitySorP`.
+ */
+function atomCipOneHot(molecule: OCL.Molecule, atom: number): number[] {
+  const cip = molecule.getAtomCIPParity(atom);
+  if (cip === OCL.Molecule.cAtomCIPParityRorM) return [0, 1, 0, 0];
+  if (cip === OCL.Molecule.cAtomCIPParitySorP) return [0, 0, 1, 0];
+  const stereo = molecule.getAtomParity(atom) !== OCL.Molecule.cAtomParityNone || cip !== OCL.Molecule.cAtomCIPParityNone;
+  return stereo ? [0, 0, 0, 1] : [1, 0, 0, 0];
+}
+
+/**
+ * `[none, E, Z, unknown]` for a stereo bond, from `getBondCIPParity` (numbering-independent, unlike
+ * `getBondParity`). `unknown` is a stereo bond (`getBondParity` not `cBondParityNone`) without an E/Z
+ * label: an unspecified or crossed double bond, or a CIP "problem". An axial (BINAP-type) single bond
+ * reports P in the E slot and M in the Z slot, as in `cBondCIPParityEorP` / `cBondCIPParityZorM`.
+ */
+function bondCipOneHot(molecule: OCL.Molecule, bond: number): number[] {
+  const cip = molecule.getBondCIPParity(bond);
+  if (cip === OCL.Molecule.cBondCIPParityEorP) return [0, 1, 0, 0];
+  if (cip === OCL.Molecule.cBondCIPParityZorM) return [0, 0, 1, 0];
+  const stereo = molecule.getBondParity(bond) !== OCL.Molecule.cBondParityNone || cip !== OCL.Molecule.cBondCIPParityNone;
+  return stereo ? [0, 0, 0, 1] : [1, 0, 0, 0];
 }
 
 /**

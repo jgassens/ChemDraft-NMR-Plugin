@@ -11,7 +11,7 @@ There is no model, model runtime or UI here yet.
 
 The featurizer is a pure function of an OpenChemLib molecule. It imports no Node-only module and never reads the clock, a random source, the locale or the platform. It never mutates the caller's molecule. The same code runs in Node (training extract) and in the plugin's Web Worker. A test checks the module sources for these dependencies.
 
-All perception comes from the OpenChemLib version the plugin already ships (`openchemlib` 9.24.0 in `package-lock.json`). Features depend on that perception, so a parity proof holds for one OpenChemLib version. Upgrading OpenChemLib means re-running the parity check, and if the dump changes, retraining or bumping the schema.
+All perception comes from the OpenChemLib version the plugin already ships (`openchemlib` 9.24.0 in `package-lock.json`). Features depend on that perception, so a parity proof holds for one OpenChemLib version. In particular, the R/S and E/Z labels are OpenChemLib 9.24.0's Cahn-Ingold-Prelog (CIP) perception, which is not guaranteed to match another toolkit or another OpenChemLib release on hard cases. Upgrading OpenChemLib means re-running the parity check (and the stereo tests, which pin 9.24.0's labels), and if the dump changes, retraining or bumping the schema.
 
 ## Molecule preparation
 
@@ -23,7 +23,7 @@ The steps reproduce `prepareProductionLookup` in [`productionLookup.ts`](../src/
 4. `setAtomMapNo(atom, 0, false)` on every atom. Map numbers are bookkeeping, never features.
 5. `ensureHelperArrays(Molecule.cHelperRings)`.
 6. Every node atom must still match the input atom at the same index (`getAtomicNo`, `getAtomCharge`, `getAtomMass`), and the heavy-atom count must be unchanged. Otherwise the call throws `GNN_ATOM_INDEX_CHANGED`.
-7. `ensureHelperArrays(Molecule.cHelperParities)` for the stereo features. This level includes everything `cHelperRings` computes. If OpenChemLib's stereo perception throws, the call throws `GNN_STEREO_PERCEPTION_FAILED`.
+7. `ensureHelperArrays(Molecule.cHelperCIP)` for the stereo features. This level (31) includes everything `cHelperRings` (7) and `cHelperParities` (15) compute, so `getAtomParity` / `getBondParity` are valid as well as `getAtomCIPParity` / `getBondCIPParity`. It runs on the prepared molecule, after the wedge transfer in step 3, so a center drawn through an explicit H keeps its R/S. If OpenChemLib's stereo perception throws, the call throws `GNN_STEREO_PERCEPTION_FAILED`.
 
 `featurizeStructure` parses with `normalizeStructure`, the same parse the plugin's predictor uses, then calls `featurizeMolecule`.
 
@@ -33,7 +33,7 @@ The steps reproduce `prepareProductionLookup` in [`productionLookup.ts`](../src/
 - **`heavyAtomIndexMap[node]`** is the atom index in the molecule passed in. Heavy-atom indices are preserved through preparation, so this is also the HOSE path's index.
 - **Molfile order.** OpenChemLib moves explicit hydrogens to the end of the atom list while parsing. A heavy atom that traded places with one moves too. Node order therefore equals molfile order only when the molfile lists hydrogens after the heavy atoms. In other cases, `parseNmredataMolecule` maps molfile atom numbers to the same OpenChemLib indices. It stamps atom-map numbers, which leave the atom order unchanged. A test checks this for an interleaved molfile.
 - **¹H targets.** A proton resonance is predicted on its host heavy atom's node. The host is `productionCodeAtom(molecule, "1H", hydrogen)`, and the node is `heavyAtomIndexMap.indexOf(host)`.
-- **Edges.** Every bond whose two atoms are both nodes, in the prepared molecule's bond-index order, zero-order bonds included. `from` is the node of `getBondAtom(0, bond)` and `to` is the node of `getBondAtom(1, bond)`. Edges are directed only because wedge and hash bonds are: for an up or down bond, `from` is the stereo center (the narrow end).
+- **Edges.** Every bond whose two atoms are both nodes, in the prepared molecule's bond-index order, zero-order bonds included. `from` is the node of `getBondAtom(0, bond)` and `to` is the node of `getBondAtom(1, bond)`. No feature depends on which end is `from`, so edges are effectively undirected; a model should treat them so (add both directions for message passing).
 
 ## Encoding rule
 
@@ -58,25 +58,63 @@ All calls are `OCL.Molecule` methods on the prepared molecule, and `atom` is the
 | 26 | `aromatic` | `isAromaticAtom(atom)` | 0 or 1 |
 | 27 | `inRing` | `isRingAtom(atom)` | 0 or 1 |
 | 28 | `smallestRingSize/8` | `getAtomRingSize(atom)` | `min(size, 8) / 8`. 0 outside rings; every ring of 8 or more atoms reads 1 |
-| 29–32 | `atomParity=none`, `odd`, `even`, `unknown` | `getAtomParity(atom)` against `cAtomParityNone` (0), `cAtomParity1` (1), `cAtomParity2` (2), `cAtomParityUnknown` (3) | one-hot (see the stereo caveats below) |
+| 29–32 | `atomCIP=none`, `R`, `S`, `unknown` | `getAtomCIPParity(atom)` and `getAtomParity(atom)`; see [Stereo features](#stereo-features) | one-hot |
 | 33–40 | `sphere{d}PositiveCharge`, `sphere{d}NegativeCharge` for d = 1…4 | `getAtomCharge` of every node at shortest-path distance d over the edges | sum of positive charges; sum of negative-charge magnitudes; integers |
 
 The ¹H/¹³C HOSE codes record the formal charge of every neighbor at every sphere up to `MAX_SPHERES` = 4 (see [charge-aware-hose.md](charge-aware-hose.md)). Features 33–40 give the model the same information, sphere by sphere. A test keeps `GNN_NEIGHBOR_CHARGE_SPHERES` equal to `MAX_SPHERES`. The positive and negative sums are kept apart, so a zwitterion's neighbors do not cancel to zero. The charge of a folded hydrogen is not represented.
 
-## Bond features (15)
+## Bond features (11)
 
 | Index | Name | OpenChemLib call | Encoding |
 | ---: | --- | --- | --- |
 | 0–4 | `order=single`, `double`, `triple`, `aromaticOrDelocalized`, `other` | `isAromaticBond(bond) \|\| isDelocalizedBond(bond) \|\| getBondTypeSimple(bond) === cBondTypeDelocalized` selects `aromaticOrDelocalized`; otherwise `getBondOrder(bond)` 1, 2 or 3; anything else (0 for metal-ligand or dative bonds, quadruple, quintuple) is `other` | one-hot. Aromatic bonds get one class whatever their Kekulé order |
 | 5 | `inRing` | `isRingBond(bond)` | 0 or 1 |
 | 6 | `delocalized` | `isDelocalizedBond(bond)` | 0 or 1. True in benzene and pyridine rings, false in furan, pyrrole and thiophene rings, which are still aromatic |
-| 7–10 | `bondParity=none`, `1`, `2`, `unknown` | `getBondParity(bond)` against `cBondParityNone` (0), `cBondParityEor1` (1), `cBondParityZor2` (2), `cBondParityUnknown` (3) | one-hot. On a double bond, OpenChemLib's E/Z parity; on a single bond, an axial (atropisomer) parity |
-| 11–14 | `stereo=none`, `up`, `down`, `cross` | `getBondType(bond) & cBondTypeMaskStereo` against 0, `cBondTypeUp & mask` (256, wedge), `cBondTypeDown & mask` (128, hash), `cBondTypeCross & mask` (384, crossed double bond) | one-hot |
+| 7–10 | `bondCIP=none`, `E`, `Z`, `unknown` | `getBondCIPParity(bond)` and `getBondParity(bond)`; see [Stereo features](#stereo-features) | one-hot |
 
-## Stereo and representation caveats
+## Stereo features
 
-- **Parities are relative to atom indices.** OpenChemLib documents that atom and bond parities depend on the indices of the neighbor atoms. The same stereoisomer written with a different atom order can therefore get the opposite parity. Both `N[C@@H](C)C(=O)O` (L-alanine) and `C[C@@H](N)C(=O)O` (D-alanine) give the stereo center `atomParity=odd`. For bonds, `C/C(F)=C/C` gets `bondParity=1` although its CIP descriptor is Z. A message-passing network cannot see the reference atom order, so these features encode *whether* a center or bond is defined more reliably than *which* configuration it has. Schema 1 uses them because the owner specified OpenChemLib parity. Order-independent descriptors (`getAtomCIPParity`, `getBondCIPParity`) are the candidate for a schema 2.
-- **Wedges come from the drawing.** For a molfile, `up`, `down` and `cross` reflect the drawn bonds after the explicit-H wedge transfer in step 3. For SMILES, OpenChemLib's coordinate generation places them. The double bond in `CC=CC` reads `bondParity=unknown` and `stereo=cross`.
+Schema 1 encodes configuration with Cahn-Ingold-Prelog descriptors, which do not depend on atom numbering. An earlier draft of schema 1 used `getAtomParity` / `getBondParity` and wedge/hash bond types; it was replaced on 2026-11-20, before any model was trained on these features, because those values are relative to atom indices or to the drawing (see [Why not OpenChemLib parity](#why-not-openchemlib-parity)).
+
+Both groups are computed on the prepared molecule after `ensureHelperArrays(Molecule.cHelperCIP)` (step 7):
+
+**Atom, indices 29–32.** With `cip = getAtomCIPParity(atom)`:
+
+| Slot | Condition |
+| --- | --- |
+| `atomCIP=R` | `cip === Molecule.cAtomCIPParityRorM` (1) |
+| `atomCIP=S` | `cip === Molecule.cAtomCIPParitySorP` (2) |
+| `atomCIP=unknown` | otherwise, when `getAtomParity(atom) !== Molecule.cAtomParityNone` (0) or `cip !== Molecule.cAtomCIPParityNone` (0) |
+| `atomCIP=none` | otherwise: not a stereo atom |
+
+**Bond, indices 7–10.** With `cip = getBondCIPParity(bond)`:
+
+| Slot | Condition |
+| --- | --- |
+| `bondCIP=E` | `cip === Molecule.cBondCIPParityEorP` (1) |
+| `bondCIP=Z` | `cip === Molecule.cBondCIPParityZorM` (2) |
+| `bondCIP=unknown` | otherwise, when `getBondParity(bond) !== Molecule.cBondParityNone` (0) or `cip !== Molecule.cBondCIPParityNone` (0) |
+| `bondCIP=none` | otherwise: not a stereo bond |
+
+Only *whether* `getAtomParity` / `getBondParity` is nonzero is read, which does not depend on numbering; their odd/even value, which does, is never used. What the slots mean in practice, as observed with OpenChemLib 9.24.0. The tests pin the alanine, E/Z, undefined-stereo, meso and 1,4-dimethylcyclohexane cases; the sulfoxide, ammonium, cyclobutane, allene, atropisomer and ESR observations come from a one-off probe and are not pinned:
+
+- **Defined centers and double bonds.** L-alanine reads S however the SMILES or molfile is written (`N[C@@H](C)C(=O)O`, `C[C@H](N)C(=O)O`, a wedge or hash drawing); D-alanine reads R. `C/C(F)=C/C` reads Z and `C/C=C/C` reads E. Sulfoxides, chiral ammonium ions and other stereo heteroatoms OpenChemLib perceives get R/S the same way.
+- **Undefined stereo reads `unknown`.** An undrawn stereocenter (`NC(C)C(=O)O`, a molfile without a wedge), an unspecified double bond (`CC=CC`) and a crossed double bond (molfile bond stereo 3) set `unknown`, never `none`.
+- **`unknown` also covers configurations CIP cannot name.** The relative cis/trans configuration of 1,4-disubstituted cyclohexanes and 1,3-disubstituted cyclobutanes has no R/S label in OpenChemLib (`getAtomCIPParity` is 0, `isAtomParityPseudo` is true). Both ring centers read `unknown`, so cis, trans and unspecified are **indistinguishable** in schema 1. A CIP "problem" (`cAtomCIPParityProblem`, `cBondCIPParityProblem`, 3) also reads `unknown`.
+- **Pseudo-asymmetric centers** (r/s, for example C3 of a meso 2,4-disubstituted pentan-3-ol) get their lowercase label in the R/S slot of the same letter.
+- **Axial chirality** shares the slots, following OpenChemLib's constant names: an allene's central atom puts M in `R` and P in `S`; an atropisomeric (BINAP-type) single bond puts P in `E` and M in `Z`. An undefined axis reads `unknown`.
+- **Enhanced stereo (ESR) is not represented.** AND/OR groups and the molfile chiral flag do not change the label: an `&1` (racemic) or `or1` center gets the R/S of the drawn configuration.
+
+**No wedge or hash features.** Up, down and crossed bond types are drawing artifacts: the same stereoisomer can be drawn with a wedge on a different bond, a hash instead of a wedge on the opposite side, or (from SMILES) with whatever wedge OpenChemLib's coordinate generation places. A network without coordinates cannot interpret them, and they would make enantiomers differ on bonds away from the center. Their stereo content is carried by the CIP slots: a crossed double bond reads `bondCIP=unknown`.
+
+### Why not OpenChemLib parity
+
+OpenChemLib's atom and bond parities depend on the indices of the neighbor atoms. Both `N[C@@H](C)C(=O)O` (L-alanine) and `C[C@@H](N)C(=O)O` (D-alanine) give the stereo center `getAtomParity` 1 ("odd"), and `C/C(F)=C/C` gets `getBondParity` 1 (`cBondParityEor1`) although it is Z. A message-passing network cannot see the reference atom order, so parity only told it that a center was defined. The tests check that features no longer depend on atom order: each test molecule is rewritten with its molfile atoms and bonds in three other orders (verified to be the same stereoisomer by ID code), and the atom rows and edges must be the same multisets. With parity restored in place of CIP, those tests fail.
+
+(OpenChemLib's own API comment on `getAtomCIPParity` and `getBondCIPParity` repeats the "depends on the atom indices" sentence from the parity methods. The returned descriptors do not depend on numbering, as the reordering tests show.)
+
+## Representation caveats
+
 - **No resonance normalization.** A pentavalent nitro group (`N(=O)=O`) and the charge-separated form (`[N+](=O)[O-]`) featurize differently in charge and π count, just as their HOSE codes differ. The training corpus and the runtime input must therefore use the same drawing conventions, or a later schema must normalize them.
 
 ## Canonical dump
@@ -85,7 +123,7 @@ The ¹H/¹³C HOSE codes record the formal charge of every neighbor at every sph
 
 - Line endings are normalized to `\n`. Records are split on `$$$$` and their molfile block extracted with `splitRecords` and `extractMolfile` from [`nmredata.ts`](../src/providers/ocl/nmredata.ts), exactly as the HOSE database compiler does.
 - Each molfile is featurized with `featurizeStructure`, as `molfile-v3000` when its counts line says V3000 and as `molfile-v2000` otherwise.
-- **Line 1, the header:** `{"format":"chemdraft-gnn-features","schemaVersion":"1","atomFeatures":[…41 names…],"bondFeatures":[…15 names…]}`. A change to feature names or order therefore changes the hash.
+- **Line 1, the header:** `{"format":"chemdraft-gnn-features","schemaVersion":"1","atomFeatures":[…41 names…],"bondFeatures":[…11 names…]}`. A change to feature names or order therefore changes the hash.
 - **One line per record**, keys in this order: `index` (0-based record position), `molfileSha256` (hex SHA-256 of the extracted molfile, UTF-8), `schemaVersion`, `heavyAtomIndexMap`, `atoms`, `bonds` (each `{"from","to","features"}`).
 - **Unfeaturizable records** become `{"index","molfileSha256","error"}`. The error is a stable code only: `GNN_NO_MOLFILE`, an `NMR_*` code from `normalizeStructure` (for example `NMR_STRUCTURE_PARSE_FAILED`), a `GNN_*` code from the featurizer, or `GNN_FEATURIZATION_FAILED`. Messages are never written. `molfileSha256` is `null` when there is no molfile.
 - **Numbers** must be finite and exact in single precision. They print as ECMAScript `Number.prototype.toString` (the shortest decimal that round-trips, locale-independent), with −0 printed as `0`. Strings print as `JSON.stringify`. There is no whitespace, every line ends in `\n`, and the text is hashed as UTF-8.
@@ -93,7 +131,7 @@ The ¹H/¹³C HOSE codes record the formal charge of every neighbor at every sph
 Ethanol (`CCO`) as record 7:
 
 ```json
-{"index":7,"molfileSha256":null,"schemaVersion":"1","heavyAtomIndexMap":[0,1,2],"atoms":[[0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0.75,0,0,0.25,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0],[0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0.5,0,0,0.5,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0.25,0,0,0.25,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0]],"bonds":[{"from":0,"to":1,"features":[1,0,0,0,0,0,0,1,0,0,0,1,0,0,0]},{"from":1,"to":2,"features":[1,0,0,0,0,0,0,1,0,0,0,1,0,0,0]}]}
+{"index":7,"molfileSha256":null,"schemaVersion":"1","heavyAtomIndexMap":[0,1,2],"atoms":[[0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0.75,0,0,0.25,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0],[0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0.5,0,0,0.5,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0.25,0,0,0.25,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0]],"bonds":[{"from":0,"to":1,"features":[1,0,0,0,0,0,0,1,0,0,0]},{"from":1,"to":2,"features":[1,0,0,0,0,0,0,1,0,0,0]}]}
 ```
 
 (The real dump fills `molfileSha256`; this line comes from a SMILES input, which has no molfile.)

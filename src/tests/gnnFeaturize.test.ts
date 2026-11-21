@@ -113,8 +113,11 @@ const ETHANOL_INTERLEAVED = molfile(
   "ethanol, H interleaved"
 );
 
-/** Alanine drawn with the methyl bond as a wedge (stereo 1) or a hash (stereo 6). */
-function alanineMolfile(stereo: 1 | 6): string {
+/**
+ * Alanine drawn with the methyl bond as a wedge (stereo 1), a hash (stereo 6) or plain (0). N upper
+ * left, COOH upper right, CH3 down: a wedge makes N → COOH → CH3 clockwise with H behind, so (R).
+ */
+function alanineMolfile(stereo: 0 | 1 | 6): string {
   return molfile(
     [
       { el: "C", x: 0, y: 0 },
@@ -125,7 +128,25 @@ function alanineMolfile(stereo: 1 | 6): string {
       { el: "O", x: 2.598, y: 0 }
     ],
     [[1, 2, 1], [1, 3, 1, stereo], [1, 4, 1], [4, 5, 2], [4, 6, 1]],
-    `alanine, methyl ${stereo === 1 ? "wedge" : "hash"}`
+    `alanine, methyl ${stereo === 1 ? "wedge" : stereo === 6 ? "hash" : "plain"}`
+  );
+}
+
+/**
+ * 2-Fluorobut-2-ene with a horizontal C2=C3 bond: C1 above C2, F below it, C4 on C3 above (F and C4
+ * trans, so E) or below (Z). Double-bond stereo 3 draws the crossed, unknown bond.
+ */
+function fluorobuteneMolfile(isomer: "E" | "Z" | "crossed"): string {
+  return molfile(
+    [
+      { el: "C", x: -0.75, y: 1.299 },
+      { el: "C", x: 0, y: 0 },
+      { el: "F", x: -0.75, y: -1.299 },
+      { el: "C", x: 1.5, y: 0 },
+      { el: "C", x: 2.25, y: isomer === "Z" ? -1.299 : 1.299 }
+    ],
+    [[1, 2, 1], [2, 3, 1], [2, 4, 2, isomer === "crossed" ? 3 : 0], [4, 5, 1]],
+    `2-fluorobut-2-ene, ${isomer}`
   );
 }
 
@@ -230,8 +251,20 @@ const SYNTHETIC: readonly Synthetic[] = [
   smiles("(E)-2-butene", "C/C=C/C"),
   smiles("(Z)-2-butene", "C/C=C\\C"),
   smiles("2-butene, unspecified", "CC=CC"),
+  smiles("alanine, unspecified", "NC(C)C(=O)O"),
+  smiles("(Z)-2-fluorobut-2-ene", "C/C(F)=C/C"),
+  smiles("(E)-2-fluorobut-2-ene", "C/C(F)=C\\C"),
+  smiles("meso pentane-2,4-difluoro-3-ol, r", "C[C@H](F)[C@H](O)[C@H](F)C"),
+  smiles("meso pentane-2,4-difluoro-3-ol, s", "C[C@H](F)[C@@H](O)[C@H](F)C"),
+  smiles("cis-1,4-dimethylcyclohexane", "C[C@H]1CC[C@@H](C)CC1"),
+  smiles("trans-1,4-dimethylcyclohexane", "C[C@H]1CC[C@H](C)CC1"),
+  smiles("1,4-dimethylcyclohexane, unspecified", "CC1CCC(C)CC1"),
   mol("alanine, wedge", alanineMolfile(1)),
   mol("alanine, hash", alanineMolfile(6)),
+  mol("alanine, plain", alanineMolfile(0)),
+  mol("2-fluorobut-2-ene, E molfile", fluorobuteneMolfile("E")),
+  mol("2-fluorobut-2-ene, Z molfile", fluorobuteneMolfile("Z")),
+  mol("2-fluorobut-2-ene, crossed molfile", fluorobuteneMolfile("crossed")),
   mol("CHFClBr, explicit H wedge", bromochlorofluoromethaneMolfile(1)),
   mol("CHFClBr, explicit H hash", bromochlorofluoromethaneMolfile(6)),
   // Isotopes
@@ -281,8 +314,8 @@ function nonZero(row: readonly number[], names: readonly string[]): Record<strin
 const atomNonZero = (row: readonly number[]) => nonZero(row, GNN_ATOM_FEATURE_NAMES);
 const bondNonZero = (row: readonly number[]) => nonZero(row, GNN_BOND_FEATURE_NAMES);
 
-const NEUTRAL_UNSPECIFIED = { "radical=none": 1, "atomParity=none": 1 };
-const PLAIN_BOND = { "bondParity=none": 1, "stereo=none": 1 };
+const NEUTRAL_UNSPECIFIED = { "radical=none": 1, "atomCIP=none": 1 };
+const PLAIN_BOND = { "bondCIP=none": 1 };
 
 function groupSum(row: readonly number[], first: number, length: number): number {
   return row.slice(first, first + length).reduce((sum, value) => sum + value, 0);
@@ -291,9 +324,9 @@ function groupSum(row: readonly number[], first: number, length: number): number
 // ---------------------------------------------------------------------------------------------
 
 describe("GNN feature schema", () => {
-  it("has 41 atom and 15 bond features in the documented order", () => {
+  it("has 41 atom and 11 bond features in the documented order", () => {
     expect(GNN_ATOM_FEATURE_COUNT).toBe(41);
-    expect(GNN_BOND_FEATURE_COUNT).toBe(15);
+    expect(GNN_BOND_FEATURE_COUNT).toBe(11);
     expect(GNN_ATOM_FEATURE_NAMES.slice(0, 14)).toEqual([
       "element=H", "element=B", "element=C", "element=N", "element=O", "element=F", "element=Si",
       "element=P", "element=S", "element=Cl", "element=Se", "element=Br", "element=I", "element=other"
@@ -304,15 +337,14 @@ describe("GNN feature schema", () => {
       "isotopeLabeled", "isotopeMassDelta",
       "totalHydrogens/4", "attachedDeuterium/4", "attachedTritium/4",
       "heavyDegree/4", "piElectrons/2", "aromatic", "inRing", "smallestRingSize/8",
-      "atomParity=none", "atomParity=odd", "atomParity=even", "atomParity=unknown",
+      "atomCIP=none", "atomCIP=R", "atomCIP=S", "atomCIP=unknown",
       "sphere1PositiveCharge", "sphere1NegativeCharge", "sphere2PositiveCharge", "sphere2NegativeCharge",
       "sphere3PositiveCharge", "sphere3NegativeCharge", "sphere4PositiveCharge", "sphere4NegativeCharge"
     ]);
     expect(GNN_BOND_FEATURE_NAMES).toEqual([
       "order=single", "order=double", "order=triple", "order=aromaticOrDelocalized", "order=other",
       "inRing", "delocalized",
-      "bondParity=none", "bondParity=1", "bondParity=2", "bondParity=unknown",
-      "stereo=none", "stereo=up", "stereo=down", "stereo=cross"
+      "bondCIP=none", "bondCIP=E", "bondCIP=Z", "bondCIP=unknown"
     ]);
   });
 
@@ -364,7 +396,7 @@ describe("featurizeMolecule on the synthetic set", () => {
       expect(Array.from(Float32Array.from(row))).toEqual(row);
       expect(groupSum(row, 0, 14)).toBe(1);
       expect(groupSum(row, atomFeature("radical=none"), 4)).toBe(1);
-      expect(groupSum(row, atomFeature("atomParity=none"), 4)).toBe(1);
+      expect(groupSum(row, atomFeature("atomCIP=none"), 4)).toBe(1);
       const atomicNo = molecule.getAtomicNo(result.heavyAtomIndexMap[node]);
       const slot = elementOrder.indexOf(atomicNo);
       expect(row.indexOf(1)).toBe(slot >= 0 ? slot : 13);
@@ -384,8 +416,7 @@ describe("featurizeMolecule on the synthetic set", () => {
       expect(bond.features).toHaveLength(GNN_BOND_FEATURE_COUNT);
       expect(Array.from(Float32Array.from(bond.features))).toEqual(bond.features);
       expect(groupSum(bond.features, bondFeature("order=single"), 5)).toBe(1);
-      expect(groupSum(bond.features, bondFeature("bondParity=none"), 4)).toBe(1);
-      expect(groupSum(bond.features, bondFeature("stereo=none"), 4)).toBe(1);
+      expect(groupSum(bond.features, bondFeature("bondCIP=none"), 4)).toBe(1);
     }
   });
 
@@ -466,23 +497,23 @@ describe("exact features, written out by hand", () => {
   it("ethanol", () => {
     const result = features("ethanol");
     expect(result.heavyAtomIndexMap).toEqual([0, 1, 2]);
-    // element(14) | q | radical(4) | iso, Δm | H, D, T | degree | pi | arom | ring | ring size | parity(4) | sphere charges(8)
+    // element(14) | q | radical(4) | iso, Δm | H, D, T | degree | pi | arom | ring | ring size | CIP(4) | sphere charges(8)
     expect(result.atoms).toEqual([
       [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0.75, 0, 0, 0.25, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0.5, 0, 0, 0.5, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0.25, 0, 0, 0.25, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
     ]);
     expect(result.bonds).toEqual([
-      { from: 0, to: 1, features: [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] },
-      { from: 1, to: 2, features: [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] }
+      { from: 0, to: 1, features: [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0] },
+      { from: 1, to: 2, features: [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0] }
     ]);
     expect(canonicalFeatureLine({ index: 7, molfileSha256: null }, result)).toBe(
       '{"index":7,"molfileSha256":null,"schemaVersion":"1","heavyAtomIndexMap":[0,1,2],"atoms":[' +
         "[0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0.75,0,0,0.25,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0]," +
         "[0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0.5,0,0,0.5,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0]," +
         "[0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0.25,0,0,0.25,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0]]," +
-        '"bonds":[{"from":0,"to":1,"features":[1,0,0,0,0,0,0,1,0,0,0,1,0,0,0]},' +
-        '{"from":1,"to":2,"features":[1,0,0,0,0,0,0,1,0,0,0,1,0,0,0]}]}\n'
+        '"bonds":[{"from":0,"to":1,"features":[1,0,0,0,0,0,0,1,0,0,0]},' +
+        '{"from":1,"to":2,"features":[1,0,0,0,0,0,0,1,0,0,0]}]}\n'
     );
   });
 
@@ -537,10 +568,10 @@ describe("exact features, written out by hand", () => {
 
   it("aromatic bonds: delocalized in pyridine, aromatic but not delocalized in furan", () => {
     expect(features("pyridine").bonds.map((bond) => bond.features)).toEqual(
-      Array(6).fill([0, 0, 0, 1, 0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0])
+      Array(6).fill([0, 0, 0, 1, 0, 1, 1, 1, 0, 0, 0])
     );
     expect(features("furan").bonds.map((bond) => bond.features)).toEqual(
-      Array(5).fill([0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0])
+      Array(5).fill([0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0])
     );
     expect(atomNonZero(features("pyrrole").atoms[3])).toEqual({
       "element=N": 1, ...NEUTRAL_UNSPECIFIED, "totalHydrogens/4": 0.25, "heavyDegree/4": 0.5, aromatic: 1, inRing: 1, "smallestRingSize/8": 0.625
@@ -566,52 +597,221 @@ describe("exact features, written out by hand", () => {
   });
 });
 
+/** Name of the set slot in a 4-slot one-hot group that starts at `first`. */
+function slotName(row: readonly number[], names: readonly string[], first: number): string {
+  const set = row.slice(first, first + 4).flatMap((value, offset) => (value === 1 ? [names[first + offset]] : []));
+  if (set.length !== 1) throw new Error(`expected one set slot, got ${set.join(",") || "none"}`);
+  return set[0];
+}
+const atomCip = (row: readonly number[]) => slotName(row, GNN_ATOM_FEATURE_NAMES, atomFeature("atomCIP=none")).replace("atomCIP=", "");
+const bondCip = (row: readonly number[]) => slotName(row, GNN_BOND_FEATURE_NAMES, bondFeature("bondCIP=none")).replace("bondCIP=", "");
+const atomCips = (result: GnnMoleculeFeatures) => result.atoms.map(atomCip);
+const bondCips = (result: GnnMoleculeFeatures) => result.bonds.map((bond) => bondCip(bond.features));
+
+/** Every feature except the CIP one-hot groups; edges keep their endpoints. */
+function withoutCip(result: GnnMoleculeFeatures) {
+  const atomFirst = atomFeature("atomCIP=none");
+  const bondFirst = bondFeature("bondCIP=none");
+  return {
+    heavyAtomIndexMap: result.heavyAtomIndexMap,
+    atoms: result.atoms.map((row) => [...row.slice(0, atomFirst), ...row.slice(atomFirst + 4)]),
+    bonds: result.bonds.map((bond) => [bond.from, bond.to, ...bond.features.slice(0, bondFirst), ...bond.features.slice(bondFirst + 4)])
+  };
+}
+
+/** Atom rows and undirected edges (endpoint rows plus bond row) as sorted strings: the order-free content. */
+function featureMultisets(result: GnnMoleculeFeatures) {
+  const atoms = result.atoms.map((row) => row.join(","));
+  const edges = result.bonds.map((bond) => {
+    const ends = [atoms[bond.from], atoms[bond.to]].sort();
+    return `${ends[0]}|${ends[1]}|${bond.features.join(",")}`;
+  });
+  return { atoms: [...atoms].sort(), edges: edges.sort() };
+}
+
+/**
+ * Rewrite a V2000 molfile with its atoms listed in `order` (`order[k]` is the 0-based original index of
+ * new atom k) and its bonds listed in reverse. Every bond keeps its direction, so a wedge keeps its
+ * narrow end, and M  CHG / ISO / RAD entries are renumbered.
+ */
+function reorderMolfile(text: string, order: readonly number[]): string {
+  const lines = text.replace(/\n$/, "").split("\n");
+  const atomCount = Number(lines[3].slice(0, 3));
+  const bondCount = Number(lines[3].slice(3, 6));
+  if ([...order].sort((a, b) => a - b).join() !== Array.from({ length: atomCount }, (_, index) => index).join()) {
+    throw new Error("order is not a permutation of the atoms");
+  }
+  const newNumber = new Map(order.map((old, index) => [old + 1, index + 1]));
+  const renumber = (old: number) => newNumber.get(old) as number;
+  const atomLines = lines.slice(4, 4 + atomCount);
+  const bondLines = lines.slice(4 + atomCount, 4 + atomCount + bondCount);
+  const properties = lines.slice(4 + atomCount + bondCount).map((line) => {
+    const match = /^M {2}(CHG|ISO|RAD)/.exec(line);
+    if (!match) return line;
+    const count = Number(line.slice(6, 9));
+    const pairs = Array.from({ length: count }, (_, index) => line.slice(9 + 8 * index, 17 + 8 * index));
+    return `M  ${match[1]}${col(count, 3)}${pairs.map((pair) => `${col(renumber(Number(pair.slice(0, 4))), 4)}${pair.slice(4)}`).join("")}`;
+  });
+  return [
+    ...lines.slice(0, 4),
+    ...order.map((old) => atomLines[old]),
+    ...[...bondLines].reverse().map((line) => `${col(renumber(Number(line.slice(0, 3))), 3)}${col(renumber(Number(line.slice(3, 6))), 3)}${line.slice(6)}`),
+    ...properties
+  ].join("\n") + "\n";
+}
+
+/** A fixed, seeded shuffle (linear congruential generator), so the test is reproducible. */
+function seededPermutation(length: number, seed: number): number[] {
+  const order = Array.from({ length }, (_, index) => index);
+  let state = seed >>> 0;
+  for (let index = length - 1; index > 0; index -= 1) {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    const other = state % (index + 1);
+    [order[index], order[other]] = [order[other], order[index]];
+  }
+  return order;
+}
+
 describe("stereo features", () => {
-  it("E/Z parity and the unspecified double bond", () => {
-    expect(features("(E)-2-butene").bonds[1].features).toEqual([0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0]);
-    expect(features("(Z)-2-butene").bonds[1].features).toEqual([0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0]);
-    expect(bondNonZero(features("2-butene, unspecified").bonds[1].features)).toEqual({
-      "order=double": 1, "bondParity=unknown": 1, "stereo=cross": 1
-    });
+  it("E/Z comes from the CIP descriptor; an unspecified or crossed double bond is unknown", () => {
+    expect(features("(E)-2-butene").bonds[1].features).toEqual([0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0]);
+    expect(features("(Z)-2-butene").bonds[1].features).toEqual([0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0]);
+    // OpenChemLib's index-relative getBondParity reads 1 ("E or 1") for this Z isomer; CIP reads Z.
+    expect(bondCips(features("(Z)-2-fluorobut-2-ene"))).toEqual(["none", "none", "Z", "none"]);
+    expect(bondCips(features("(E)-2-fluorobut-2-ene"))).toEqual(["none", "none", "E", "none"]);
+    expect(bondCips(features("2-fluorobut-2-ene, E molfile"))).toEqual(["none", "none", "E", "none"]);
+    expect(bondCips(features("2-fluorobut-2-ene, Z molfile"))).toEqual(["none", "none", "Z", "none"]);
+    expect(bondNonZero(features("2-butene, unspecified").bonds[1].features)).toEqual({ "order=double": 1, "bondCIP=unknown": 1 });
+    expect(bondCips(features("2-fluorobut-2-ene, crossed molfile"))).toEqual(["none", "none", "unknown", "none"]);
   });
 
-  it("enantiomers from SMILES differ only in parity and wedge direction", () => {
+  it.each([
+    ["(E)-2-butene", "(Z)-2-butene", 1],
+    ["(E)-2-fluorobut-2-ene", "(Z)-2-fluorobut-2-ene", 2],
+    ["2-fluorobut-2-ene, E molfile", "2-fluorobut-2-ene, Z molfile", 2]
+  ] as const)("%s and %s differ only in the E/Z bit of the double bond", (eName, zName, doubleBond) => {
+    const e = features(eName);
+    const z = features(zName);
+    expect(z.atoms).toEqual(e.atoms);
+    expect(z.heavyAtomIndexMap).toEqual(e.heavyAtomIndexMap);
+    expect(z.bonds.map((bond) => [bond.from, bond.to])).toEqual(e.bonds.map((bond) => [bond.from, bond.to]));
+    const differing = e.bonds.flatMap((bond, index) =>
+      bond.features.flatMap((value, slot) => (value === z.bonds[index].features[slot] ? [] : [[index, GNN_BOND_FEATURE_NAMES[slot]]]))
+    );
+    expect(differing).toEqual([[doubleBond, "bondCIP=E"], [doubleBond, "bondCIP=Z"]]);
+  });
+
+  it("enantiomers from SMILES get opposite R/S on the stereo center and identical features elsewhere", () => {
     const l = features("L-alanine");
     const d = features("D-alanine");
+    expect(atomCips(l)).toEqual(["none", "S", "none", "none", "none", "none"]);
+    expect(atomCips(d)).toEqual(["none", "R", "none", "none", "none", "none"]);
     expect(atomNonZero(l.atoms[1])).toEqual({
-      "element=C": 1, "radical=none": 1, "totalHydrogens/4": 0.25, "heavyDegree/4": 0.75, "atomParity=odd": 1
+      "element=C": 1, "radical=none": 1, "totalHydrogens/4": 0.25, "heavyDegree/4": 0.75, "atomCIP=S": 1
     });
-    expect(atomNonZero(d.atoms[1])).toEqual({
-      "element=C": 1, "radical=none": 1, "totalHydrogens/4": 0.25, "heavyDegree/4": 0.75, "atomParity=even": 1
-    });
-    expect(bondNonZero(l.bonds[0].features)).toEqual({ "order=single": 1, "bondParity=none": 1, "stereo=up": 1 });
-    expect(bondNonZero(d.bonds[0].features)).toEqual({ "order=single": 1, "bondParity=none": 1, "stereo=down": 1 });
-    expect([l.bonds[0].from, l.bonds[0].to]).toEqual([1, 0]); // the stereo center is the narrow end
-    const withoutStereo = (result: GnnMoleculeFeatures) => ({
-      atoms: result.atoms.map((row) => row.slice(0, atomFeature("atomParity=none"))),
-      bonds: result.bonds.map((bond) => [bond.from, bond.to, ...bond.features.slice(0, bondFeature("stereo=none"))])
-    });
-    expect(withoutStereo(d)).toEqual(withoutStereo(l));
+    expect(withoutCip(d)).toEqual(withoutCip(l));
+    expect(d.bonds).toEqual(l.bonds); // no bond feature depends on the configuration or the drawing
+    // L-alanine written from the other end still reads S, which index-relative parity did not.
+    expect(atomCips(featurizeStructure({ format: "smiles", value: "C[C@H](N)C(=O)O" }))).toEqual(["none", "S", "none", "none", "none", "none"]);
+    expect(atomCips(featurizeStructure({ format: "smiles", value: "C[C@@H](N)C(=O)O" }))).toEqual(["none", "R", "none", "none", "none", "none"]);
+    // Determinism across alternating enantiomers.
+    const first = canonicalFeatureLine({ index: 0, molfileSha256: null }, l);
+    features("D-alanine");
+    expect(canonicalFeatureLine({ index: 0, molfileSha256: null }, features("L-alanine"))).toBe(first);
   });
 
-  it("drawn wedge and hash give opposite parities", () => {
+  it("a drawn wedge and hash give R and S and nothing else differs", () => {
     const wedge = features("alanine, wedge");
     const hash = features("alanine, hash");
-    expect(bondNonZero(wedge.bonds[1].features)).toEqual({ "order=single": 1, "bondParity=none": 1, "stereo=up": 1 });
-    expect(bondNonZero(hash.bonds[1].features)).toEqual({ "order=single": 1, "bondParity=none": 1, "stereo=down": 1 });
-    const parity = (result: GnnMoleculeFeatures) => GNN_ATOM_FEATURE_NAMES[atomFeature("atomParity=none") + result.atoms[0].slice(atomFeature("atomParity=none"), atomFeature("atomParity=none") + 4).indexOf(1)];
-    expect(new Set([parity(wedge), parity(hash)])).toEqual(new Set(["atomParity=odd", "atomParity=even"]));
+    expect(atomCips(wedge)).toEqual(["R", "none", "none", "none", "none", "none"]);
+    expect(atomCips(hash)).toEqual(["S", "none", "none", "none", "none", "none"]);
+    expect(withoutCip(hash)).toEqual(withoutCip(wedge));
+    expect(hash.bonds).toEqual(wedge.bonds);
+    // The drawn (S) molfile and the L-alanine SMILES agree feature for feature, in any atom order.
+    expect(featureMultisets(hash)).toEqual(featureMultisets(features("L-alanine")));
+    expect(featureMultisets(wedge)).toEqual(featureMultisets(features("D-alanine")));
   });
 
-  it("a stereo center drawn through an explicit H keeps a defined parity once H is folded", () => {
+  it("a stereo center drawn through an explicit H keeps its R/S once H is folded", () => {
     const wedge = features("CHFClBr, explicit H wedge");
     const hash = features("CHFClBr, explicit H hash");
     expect(wedge.heavyAtomIndexMap).toEqual([0, 1, 2, 3]);
-    const parityOf = (result: GnnMoleculeFeatures) => [1, 2, 3, 4].map((offset) => result.atoms[0][atomFeature("atomParity=none") + offset - 1]);
-    expect(parityOf(wedge)).not.toEqual([1, 0, 0, 0]);
-    expect(parityOf(hash)).not.toEqual([1, 0, 0, 0]);
-    expect(parityOf(wedge)).not.toEqual(parityOf(hash));
+    // Br (down) → Cl (right) → F (left) runs counterclockwise; with H toward the viewer that is (R).
+    expect(atomCip(wedge.atoms[0])).toBe("R");
+    expect(atomCip(hash.atoms[0])).toBe("S");
+    expect(withoutCip(hash)).toEqual(withoutCip(wedge));
     expect(wedge.atoms[0][atomFeature("totalHydrogens/4")]).toBe(0.25);
+  });
+
+  it("undefined stereo reads unknown, not none", () => {
+    expect(atomCips(features("alanine, unspecified"))).toEqual(["none", "unknown", "none", "none", "none", "none"]);
+    expect(atomCips(features("alanine, plain"))).toEqual(["unknown", "none", "none", "none", "none", "none"]);
+    expect(withoutCip(features("alanine, plain"))).toEqual(withoutCip(features("alanine, wedge")));
+    expect(bondCip(features("2-butene, unspecified").bonds[1].features)).toBe("unknown");
+  });
+
+  it("pins OpenChemLib 9.24.0 on relative configurations: pseudo-asymmetric r/s fills the R/S slots, ring cis/trans reads unknown", () => {
+    // Meso 2,4-difluoropentan-3-ol: C3 is pseudo-asymmetric; its r/s labels land in the R/S slots.
+    const r = features("meso pentane-2,4-difluoro-3-ol, r");
+    const s = features("meso pentane-2,4-difluoro-3-ol, s");
+    expect(atomCips(r)).toEqual(["none", "S", "none", "S", "none", "R", "none", "none"]);
+    expect(atomCips(s)).toEqual(["none", "S", "none", "R", "none", "R", "none", "none"]);
+    // cis/trans-1,4-dimethylcyclohexane has no CIP label: both ring centers read unknown, exactly as
+    // when the configuration is not drawn. Schema 1 does not distinguish these diastereomers.
+    const cis = features("cis-1,4-dimethylcyclohexane");
+    expect(atomCips(cis)).toEqual(["none", "unknown", "none", "none", "unknown", "none", "none", "none"]);
+    expect(features("trans-1,4-dimethylcyclohexane")).toEqual(cis);
+    expect(featureMultisets(features("1,4-dimethylcyclohexane, unspecified"))).toEqual(featureMultisets(cis));
+  });
+
+  const reorderCases: readonly (readonly [string, string])[] = [
+    ["(S)-alanine, wedge drawing", alanineMolfile(6)],
+    ["(Z)-2-fluorobut-2-ene drawing", fluorobuteneMolfile("Z")],
+    ["CHFClBr with an explicit H wedge", bromochlorofluoromethaneMolfile(1)],
+    ...[
+      ["L-alanine", "N[C@@H](C)C(=O)O"],
+      ["(E)-2-fluorobut-2-ene", "C/C(F)=C\\C"],
+      ["a menthol stereoisomer", "CC(C)[C@@H]1CC[C@@H](C)C[C@H]1O"],
+      ["an (E)-4-chloropent-2-en-1-ol enantiomer", "OC/C=C/[C@H](Cl)C"],
+      ["glycine zwitterion", "[NH3+]CC([O-])=O"],
+      ["meso pentane-2,4-difluoro-3-ol", "C[C@H](F)[C@H](O)[C@H](F)C"]
+    ].map(([name, value]) => [`${name} (OpenChemLib molfile)`, OCL.Molecule.fromSmiles(value).toMolfile()] as const)
+  ];
+
+  it.each(reorderCases)("%s: reordering the molfile atoms and bonds leaves the feature multisets unchanged", (name, text) => {
+    const original = featurizeStructure(molfileStructureInput(text));
+    const atomCount = Number(text.split("\n")[3].slice(0, 3));
+    const orders = [
+      Array.from({ length: atomCount }, (_, index) => atomCount - 1 - index),
+      seededPermutation(atomCount, 7),
+      seededPermutation(atomCount, 2026)
+    ];
+    const referenceId = OCL.Molecule.fromMolfile(text).getIDCode();
+    const hasStereo = original.atoms.some((row) => atomCip(row) !== "none") || original.bonds.some((bond) => bondCip(bond.features) !== "none");
+    if (!/glycine/.test(name)) expect(hasStereo).toBe(true);
+    for (const order of orders) {
+      const reordered = reorderMolfile(text, order);
+      expect(OCL.Molecule.fromMolfile(reordered).getIDCode()).toBe(referenceId); // the same stereoisomer
+      const result = featurizeStructure(molfileStructureInput(reordered));
+      expect(featureMultisets(result)).toEqual(featureMultisets(original));
+    }
+  });
+
+  it("without explicit hydrogens, a reordered molfile gives each atom exactly its original row", () => {
+    const text = OCL.Molecule.fromSmiles("CC(C)[C@@H]1CC[C@@H](C)C[C@H]1O").toMolfile();
+    const original = featurizeStructure(molfileStructureInput(text));
+    const order = seededPermutation(original.atoms.length, 11);
+    const reordered = featurizeStructure(molfileStructureInput(reorderMolfile(text, order)));
+    expect(reordered.heavyAtomIndexMap).toEqual(order.map((_, index) => index));
+    order.forEach((old, index) => expect(reordered.atoms[index]).toEqual(original.atoms[old]));
+    expect(atomCips(original).filter((label) => label !== "none").sort()).toEqual(["R", "R", "S"]);
+  });
+
+  it("an OpenChemLib molfile of a SMILES gives the SMILES's features", () => {
+    for (const value of ["N[C@@H](C)C(=O)O", "C/C(F)=C\\C", "CC(C)[C@@H]1CC[C@@H](C)C[C@H]1O"]) {
+      const direct = featurizeStructure({ format: "smiles", value });
+      expect(featurizeStructure(molfileStructureInput(OCL.Molecule.fromSmiles(value).toMolfile()))).toEqual(direct);
+    }
   });
 });
 
@@ -687,7 +887,7 @@ describe("explicit hydrogens and molfile atom order", () => {
     const result = features("dihydrogen");
     expect(result.heavyAtomIndexMap).toEqual([0, 1]);
     expect(result.atoms.map((row) => row[atomFeature("element=H")])).toEqual([1, 1]);
-    expect(result.bonds).toEqual([{ from: 0, to: 1, features: [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0] }]);
+    expect(result.bonds).toEqual([{ from: 0, to: 1, features: [1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0] }]);
   });
 });
 
