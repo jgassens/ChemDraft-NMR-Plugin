@@ -16,6 +16,7 @@ import { PROTON_HIGH_DISPERSION_CROSS_CHECK_PPM } from "../../domain/contracts";
 import { NmrError, NmrErrorCodes } from "../../domain/errors";
 import { fingerprintStructureInput } from "../../domain/fingerprint";
 import { nmrWarning, NmrWarningCodes, type NmrPredictionWarning } from "../../domain/warnings";
+import { nucleusLabel } from "../../domain/nucleusLabel";
 import { normalizeStructure } from "../../application/normalizeStructure";
 import { computeMultiplet, reportedProtonCouplingHz } from "./coupling";
 import { MAX_SPHERES } from "./environmentCode";
@@ -142,7 +143,7 @@ export class OclHosePredictor implements NmrPredictor {
       const resonanceStart = resonances.length;
       if (nucleus === "31P") {
         if (!this.phosphorusDatabase) {
-          warnings.push(nmrWarning(NmrWarningCodes.PhosphorusDatabaseNotInstalled, "31P database not installed"));
+          warnings.push(nmrWarning(NmrWarningCodes.PhosphorusDatabaseNotInstalled, "³¹P database not installed"));
           continue;
         }
         omittedPhosphorus = predictPhosphorus(
@@ -222,12 +223,12 @@ export class OclHosePredictor implements NmrPredictor {
       const atomIndices = estimateAtoms(estimates);
       const atomLists = nuclei.flatMap((nucleus) => {
         const atoms = estimateAtoms(estimates.filter((resonance) => resonance.nucleus === nucleus));
-        return atoms.length ? [`${nucleus} ${nucleus === "1H" ? "host atoms" : "atoms"} ${atoms.join(", ")}`] : [];
+        return atoms.length ? [`${nucleusLabel(nucleus)} ${nucleus === "1H" ? "host atoms" : "atoms"} ${atoms.join(", ")}`] : [];
       });
       warnings.push(
         nmrWarning(
           NmrWarningCodes.RuleEstimated,
-          `${totals.estimated} resonance(s) had no database match and are shown as rule estimates (est.): ${atomLists.join("; ")}. Atom indices are zero-based; 1H indices identify the host atom.`,
+          `${totals.estimated} resonance(s) had no database match and are shown as rule estimates (est.): ${atomLists.join("; ")}. Atom indices are zero-based; ¹H indices identify the host atom.`,
           { severity: "warning", atomIndices }
         )
       );
@@ -244,7 +245,7 @@ export class OclHosePredictor implements NmrPredictor {
     if (omittedPhosphorus > 0 && resonances.length > 0) {
       warnings.push(nmrWarning(
         NmrWarningCodes.PartialPrediction,
-        `${omittedPhosphorus} phosphorus atom(s) were omitted because no 31P database environment matched.`,
+        `${omittedPhosphorus} phosphorus atom(s) were omitted because no ³¹P database environment matched.`,
         { details: { omittedEnvironmentCount: omittedPhosphorus, nucleus: "31P" } }
       ));
     }
@@ -304,7 +305,7 @@ function predictPhosphorus(
       omitted += atoms.length;
       warnings.push(nmrWarning(
         NmrWarningCodes.NoFragmentMatch,
-        `No 31P database match for atom${atoms.length === 1 ? "" : "s"} ${atoms.join(", ")}; the resonance was omitted.`,
+        `No ³¹P database match for atom${atoms.length === 1 ? "" : "s"} ${atoms.join(", ")}; the resonance was omitted.`,
         { atomIndices: [...atoms], details: { nucleus: "31P", environmentCode: codes[0] } }
       ));
     }
@@ -634,7 +635,7 @@ function warnStereochemicallyDistinctMergedClasses(
   warnings.push(
     nmrWarning(
       NmrWarningCodes.StereoNonequivalentMerged,
-      `${formatAtoms(molecule, atomIndices)} are stereochemically distinct members of ${mergedClassCount} constitutionally merged ${nucleus} class(es). These atoms may give separate signals; this model reports one shift for each merged class and does not predict separate values.`,
+      `${formatAtoms(molecule, atomIndices)} are stereochemically distinct members of ${mergedClassCount} constitutionally merged ${nucleusLabel(nucleus)} class(es). These atoms may give separate signals; this model reports one shift for each merged class and does not predict separate values.`,
       {
         severity: "info",
         atomIndices,
@@ -968,7 +969,7 @@ function buildResonance(
     warnings.push(
       nmrWarning(
         NmrWarningCodes.SmallReferencePopulation,
-        `Only ${entry.n} reference shift(s) for ${nucleus} ${deltaPpm} ppm.`,
+        `Only ${entry.n} reference shift(s) for ${nucleusLabel(nucleus)} ${deltaPpm} ppm.`,
         { severity: "info", atomIndices: [...atoms] }
       )
     );
@@ -977,7 +978,7 @@ function buildResonance(
     warnings.push(
       nmrWarning(
         NmrWarningCodes.LowHoseSphereMatch,
-        `${nucleus} ${deltaPpm} ppm matched only a 1-sphere environment; confidence is low.`,
+        `${nucleusLabel(nucleus)} ${deltaPpm} ppm matched only a 1-sphere environment; confidence is low.`,
         { severity: "info", atomIndices: [...atoms] }
       )
     );
@@ -1040,7 +1041,7 @@ function warnOmitted(
   warnings.push(
     nmrWarning(
       NmrWarningCodes.NoFragmentMatch,
-      `No ${nucleus} database match or applicable rule estimate for atom${atoms.length === 1 ? "" : "s"} ${atoms.join(
+      `No ${nucleusLabel(nucleus)} database match or applicable rule estimate for atom${atoms.length === 1 ? "" : "s"} ${atoms.join(
         ", "
       )}; the resonance was omitted (${reason}).`,
       {

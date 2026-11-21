@@ -139,7 +139,7 @@ describe("deuterated host molfile environments", () => {
   it("matches the unlabelled ethanol serialization baseline", async () => {
     const result = await predict(ethanol);
     expect(createHash("sha256").update(JSON.stringify(result)).digest("hex"))
-      .toBe("f3c12b364cc0d82cce1be0971ceacbf318f6d353c535911691a455e1e7c1b0e0");
+      .toBe("b3cb0f3c3c4872044feb1e0975de34ca6fce2e7482c97b37ab431bc6297055fd");
   });
 
   it("CH3NHD retains the methyl shift and declines NH as for plain methylamine", async () => {

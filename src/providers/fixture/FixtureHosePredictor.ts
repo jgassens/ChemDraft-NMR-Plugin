@@ -10,6 +10,7 @@ import type {
 import { NmrError, NmrErrorCodes } from "../../domain/errors";
 import { fingerprintStructureInput } from "../../domain/fingerprint";
 import { nmrWarning, NmrWarningCodes, type NmrPredictionWarning } from "../../domain/warnings";
+import { nucleusLabel } from "../../domain/nucleusLabel";
 import { normalizeStructure } from "../../application/normalizeStructure";
 import {
   collectCarbonEnvironments,
@@ -74,7 +75,7 @@ export class FixtureHosePredictor implements NmrPredictor {
       } else if (nucleus === "1H") {
         unmatchedAtoms += this.predictProton(molecule, request, resonances, warnings);
       } else {
-        warnings.push(nmrWarning(NmrWarningCodes.PhosphorusDatabaseNotInstalled, "31P database not installed"));
+        warnings.push(nmrWarning(NmrWarningCodes.PhosphorusDatabaseNotInstalled, "³¹P database not installed"));
       }
     }
 
@@ -192,7 +193,7 @@ function buildResonance(
     warnings.push(
       nmrWarning(
         NmrWarningCodes.SmallReferencePopulation,
-        `Fixture reference population for ${nucleus} ${shift.shiftPpm} ppm is ${shift.sampleCount}.`,
+        `Fixture reference population for ${nucleusLabel(nucleus)} ${shift.shiftPpm} ppm is ${shift.sampleCount}.`,
         { severity: "info", atomIndices: members.map((member) => member.atomIndex) }
       )
     );
@@ -223,7 +224,7 @@ function noFragmentMatchWarning(
 ): NmrPredictionWarning {
   return nmrWarning(
     NmrWarningCodes.NoFragmentMatch,
-    `No ${nucleus} fixture fragment matched environment ${environmentCode}.`,
+    `No ${nucleusLabel(nucleus)} fixture fragment matched environment ${environmentCode}.`,
     { severity: "warning", atomIndices: members.map((member) => member.atomIndex), details: { nucleus, environmentCode } }
   );
 }

@@ -82,7 +82,7 @@ const gnnResult: NmrPredictionResult = {
   warnings: [
     {
       code: "NMR_MODEL_LOOKUP_DISAGREEMENT",
-      message: "13C atoms 1: model and reference lookup disagree (GNN prediction 137.40 ppm, HOSE lookup 142.10 ppm, agreement band 4 ppm).",
+      message: "¹³C atoms 1: model and reference lookup disagree (GNN prediction 137.40 ppm, HOSE lookup 142.10 ppm, agreement band 4 ppm).",
       severity: "warning",
       atomIndices: [1]
     }

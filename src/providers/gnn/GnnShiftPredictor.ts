@@ -36,6 +36,7 @@ import type {
 import { isRuleEstimated } from "../../domain/contracts";
 import { NmrError, NmrErrorCodes } from "../../domain/errors";
 import { nmrWarning, NmrWarningCodes, type NmrPredictionWarning } from "../../domain/warnings";
+import { nucleusLabel } from "../../domain/nucleusLabel";
 import { normalizeStructure } from "../../application/normalizeStructure";
 import { computeMultiplet } from "../ocl/coupling";
 import { MAX_SPHERES } from "../ocl/environmentCode";
@@ -228,7 +229,7 @@ export class GnnShiftPredictor implements NmrPredictor {
     if (state.status === "unavailable") {
       warnings.push(nmrWarning(
         NmrWarningCodes.GnnModelUnavailable,
-        `The ${nucleus} GNN model is unavailable (${state.reason}); ${nucleus} shifts are HOSE lookup values. ${state.message}`,
+        `The ${nucleusLabel(nucleus)} GNN model is unavailable (${state.reason}); ${nucleusLabel(nucleus)} shifts are HOSE lookup values. ${state.message}`,
         { details: { nucleus, reason: state.reason } }
       ));
       return classes.map((atoms) => fallback(atoms));
@@ -265,7 +266,7 @@ export class GnnShiftPredictor implements NmrPredictor {
       } catch (error) {
         warnings.push(nmrWarning(
           NmrWarningCodes.GnnInferenceFailed,
-          `GNN inference failed for ${nucleus}; ${nucleus} shifts are HOSE lookup values. ${error instanceof Error ? error.message : String(error)}`,
+          `GNN inference failed for ${nucleusLabel(nucleus)}; ${nucleusLabel(nucleus)} shifts are HOSE lookup values. ${error instanceof Error ? error.message : String(error)}`,
           { details: { nucleus } }
         ));
         return classes.map((atoms) => fallback(atoms));
@@ -289,7 +290,7 @@ export class GnnShiftPredictor implements NmrPredictor {
       if (disagrees && reference) {
         warnings.push(nmrWarning(
           NmrWarningCodes.ModelLookupDisagreement,
-          `${nucleus} ${nucleus === "1H" ? "host atoms" : "atoms"} ${atoms.join(", ")}: ${MODEL_LOOKUP_DISAGREEMENT_PHRASE} (GNN prediction ${shipped.deltaPpm.toFixed(2)} ppm, HOSE lookup ${reference.deltaPpm.toFixed(2)} ppm, agreement band ${band} ppm). The GNN value is shown with tier low; the values are not averaged.`,
+          `${nucleusLabel(nucleus)} ${nucleus === "1H" ? "host atoms" : "atoms"} ${atoms.join(", ")}: ${MODEL_LOOKUP_DISAGREEMENT_PHRASE} (GNN prediction ${shipped.deltaPpm.toFixed(2)} ppm, HOSE lookup ${reference.deltaPpm.toFixed(2)} ppm, agreement band ${band} ppm). The GNN value is shown with tier low; the values are not averaged.`,
           {
             atomIndices: [...atoms],
             details: { nucleus, gnnPpm: shipped.deltaPpm, lookupPpm: reference.deltaPpm, bandPpm: band }
@@ -317,7 +318,7 @@ export class GnnShiftPredictor implements NmrPredictor {
         : "";
       warnings.push(nmrWarning(
         NmrWarningCodes.GnnDeclined,
-        `GNN prediction withheld for ${nucleus} ${nucleus === "1H" ? "host atoms" : "atoms"} ${sorted.join(", ")} (zero-based): ${reasons}. The HOSE lookup value is shown instead where one exists.${noShift}`,
+        `GNN prediction withheld for ${nucleusLabel(nucleus)} ${nucleus === "1H" ? "host atoms" : "atoms"} ${sorted.join(", ")} (zero-based): ${reasons}. The HOSE lookup value is shown instead where one exists.${noShift}`,
         {
           atomIndices: sorted,
           details: { nucleus, rules: [...declines], ...(featureError && declines.includes("graph") ? { featurizerError: featureError } : {}) }
@@ -415,8 +416,8 @@ function reconcileHoseWarnings(
       const atoms = atomsKey(resonance.atomRefs.map((ref) => ref.sourceAtomIndex));
       const sampleCount = resonance.evidence?.sampleCount;
       return [
-        `${atoms}|Only ${sampleCount} reference shift(s) for ${resonance.nucleus} ${resonance.deltaPpm} ppm.`,
-        `${atoms}|${resonance.nucleus} ${resonance.deltaPpm} ppm matched only a 1-sphere environment; confidence is low.`
+        `${atoms}|Only ${sampleCount} reference shift(s) for ${nucleusLabel(resonance.nucleus)} ${resonance.deltaPpm} ppm.`,
+        `${atoms}|${nucleusLabel(resonance.nucleus)} ${resonance.deltaPpm} ppm matched only a 1-sphere environment; confidence is low.`
       ];
     })
   );
@@ -462,11 +463,11 @@ function ruleEstimateWarning(estimates: readonly NmrResonance[], nuclei: readonl
     [...new Set(values.flatMap((resonance) => resonance.atomRefs.map((ref) => ref.sourceAtomIndex)))].sort((a, b) => a - b);
   const atomLists = nuclei.flatMap((nucleus) => {
     const atoms = estimateAtoms(estimates.filter((resonance) => resonance.nucleus === nucleus));
-    return atoms.length ? [`${nucleus} ${nucleus === "1H" ? "host atoms" : "atoms"} ${atoms.join(", ")}`] : [];
+    return atoms.length ? [`${nucleusLabel(nucleus)} ${nucleus === "1H" ? "host atoms" : "atoms"} ${atoms.join(", ")}`] : [];
   });
   return nmrWarning(
     NmrWarningCodes.RuleEstimated,
-    `${estimates.length} resonance(s) had no database match and are shown as rule estimates (est.): ${atomLists.join("; ")}. Atom indices are zero-based; 1H indices identify the host atom.`,
+    `${estimates.length} resonance(s) had no database match and are shown as rule estimates (est.): ${atomLists.join("; ")}. Atom indices are zero-based; ¹H indices identify the host atom.`,
     { severity: "warning", atomIndices: estimateAtoms(estimates) }
   );
 }

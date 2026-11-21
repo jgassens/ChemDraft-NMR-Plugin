@@ -240,7 +240,7 @@ describe("31P HOSE prediction", () => {
     expect(result.resonances).toEqual([]);
     expect(result.warnings).toContainEqual(expect.objectContaining({
       code: NmrWarningCodes.PhosphorusDatabaseNotInstalled,
-      message: "31P database not installed"
+      message: "³¹P database not installed"
     }));
   });
 

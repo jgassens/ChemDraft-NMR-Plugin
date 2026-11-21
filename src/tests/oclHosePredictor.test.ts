@@ -6,6 +6,7 @@ import { NmrPredictionResultSchema } from "../domain/schemas";
 import { buildNmrDatabase } from "../providers/ocl/buildDatabase";
 import { atomEnvironmentCodes, environmentKey } from "../providers/ocl/environmentCode";
 import type { CompiledNmrDatabase, NmrDatabaseEntry } from "../providers/ocl/localDatabase";
+import { nucleusLabel } from "../domain/nucleusLabel";
 import { OclHosePredictor } from "../providers/ocl/OclHosePredictor";
 import { composePredictionReport } from "../report/composePredictionReport";
 import { renderStickSpectrumSvg } from "../report/stickSpectrumSvg";
@@ -306,7 +307,7 @@ describe("OclHosePredictor", () => {
       if (estimated.length) {
         const atoms = [...new Set(estimated.flatMap((resonance) => resonance.atomRefs.map((ref) => ref.sourceAtomIndex)))].sort((a, b) => a - b);
         expect(warning?.atomIndices).toEqual(atoms);
-        expect(warning?.message).toContain(`${nucleus} ${nucleus === "1H" ? "host atoms" : "atoms"} ${atoms.join(", ")}`);
+        expect(warning?.message).toContain(`${nucleusLabel(nucleus)} ${nucleus === "1H" ? "host atoms" : "atoms"} ${atoms.join(", ")}`);
         const notices = report.sections.find((section) => section.kind === "text" && section.title === "Notices");
         expect(notices?.kind === "text" ? notices.body : "").toContain(warning!.message);
         for (const resonance of estimated) expect(svg).toContain(`${resonance.deltaPpm.toFixed(1)} est.</text>`);

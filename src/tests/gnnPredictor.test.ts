@@ -418,7 +418,7 @@ describe("GnnShiftPredictor labels and notices", () => {
     expect(byAtoms(result, "13C", [1])).toMatchObject({ method: "HOSE lookup", source: "rule-estimate" });
     expect(byAtoms(result, "13C", [0])).toMatchObject({ method: "GNN prediction" });
     const recounted = result.warnings.find((warning) => warning.code === NmrWarningCodes.RuleEstimated);
-    expect(recounted?.message).toMatch(/^1 resonance\(s\) had no database match .*13C atoms 1\./);
+    expect(recounted?.message).toMatch(/^1 resonance\(s\) had no database match .*¹³C atoms 1\./);
     expect(recounted?.atomIndices).toEqual([1]);
   });
 

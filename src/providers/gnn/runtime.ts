@@ -19,6 +19,7 @@
 import { GNN_MODEL_FILES, type GnnNucleus } from "./modelRelease";
 import type { GnnMoleculeFeatures } from "./featurize";
 import { gnnInputShapes, type GnnInputTensors } from "./tensors";
+import { nucleusLabel } from "../../domain/nucleusLabel";
 
 /** The pinned runtime. Must equal the exact `onnxruntime-web` version in package.json. */
 export const ONNX_RUNTIME_WEB_VERSION = "1.22.0";
@@ -181,7 +182,7 @@ export class GnnModelRuntime implements GnnModelProvider {
       const raw = await this.fetchAsset(this.modelUrl(nucleus));
       bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
     } catch (error) {
-      return unavailable("missing", `The ${nucleus} model file could not be read: ${describeError(error)}`);
+      return unavailable("missing", `The ${nucleusLabel(nucleus)} model file could not be read: ${describeError(error)}`);
     }
     const expected = this.expectedSha256(nucleus);
     let actual: string;
@@ -191,7 +192,7 @@ export class GnnModelRuntime implements GnnModelProvider {
       return unavailable("load-failed", describeError(error));
     }
     if (actual !== expected) {
-      return unavailable("checksum-mismatch", `The ${nucleus} model file's SHA-256 ${actual} does not match ${expected}.`);
+      return unavailable("checksum-mismatch", `The ${nucleusLabel(nucleus)} model file's SHA-256 ${actual} does not match ${expected}.`);
     }
     let session: OrtSessionLike;
     let ort: OrtModuleLike;
@@ -199,7 +200,7 @@ export class GnnModelRuntime implements GnnModelProvider {
       ort = await this.runtime();
       session = await ort.InferenceSession.create(bytes, { executionProviders: ["wasm"] });
     } catch (error) {
-      return unavailable("load-failed", `The ${nucleus} model could not be loaded: ${describeError(error)}`);
+      return unavailable("load-failed", `The ${nucleusLabel(nucleus)} model could not be loaded: ${describeError(error)}`);
     }
     // One run at a time per session.
     let queue: Promise<unknown> = Promise.resolve();
@@ -214,13 +215,13 @@ export class GnnModelRuntime implements GnnModelProvider {
       const outputs = await session.run(feeds);
       const ppm = outputs.ppm;
       if (!ppm || ppm.type !== "float32" || !(ppm.data instanceof Float32Array)) {
-        throw new GnnInferenceError(`The ${nucleus} model returned no float32 ppm output.`);
+        throw new GnnInferenceError(`The ${nucleusLabel(nucleus)} model returned no float32 ppm output.`);
       }
       if (ppm.dims.length !== 2 || ppm.dims[0] !== 1 || ppm.dims[1] !== tensors.atomCount) {
-        throw new GnnInferenceError(`The ${nucleus} model returned ppm of shape [${ppm.dims.join(", ")}].`);
+        throw new GnnInferenceError(`The ${nucleusLabel(nucleus)} model returned ppm of shape [${ppm.dims.join(", ")}].`);
       }
       const values = Float32Array.from(ppm.data);
-      if (!values.every(Number.isFinite)) throw new GnnInferenceError(`The ${nucleus} model returned a non-finite shift.`);
+      if (!values.every(Number.isFinite)) throw new GnnInferenceError(`The ${nucleusLabel(nucleus)} model returned a non-finite shift.`);
       return values;
     };
     const model: GnnModel = {
