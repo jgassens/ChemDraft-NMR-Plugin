@@ -213,6 +213,12 @@ export interface NmrStructureAtom {
   x: number;
   y: number;
   element: string;
+  /** Formal charge; absent or 0 for a neutral atom. */
+  charge?: number;
+  /** Radical state; absent for none. */
+  radical?: "singlet" | "doublet" | "triplet";
+  /** Explicit isotope mass number; absent for natural abundance. Deuterium is carried as element "D". */
+  isotopeMass?: number;
 }
 
 export interface NmrStructureBond {

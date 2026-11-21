@@ -138,7 +138,15 @@ const NmrPredictionWarningSchema = z.object({
 });
 
 const NmrStructureDepictionSchema = z.object({
-  atoms: z.array(z.object({ index: z.number(), x: z.number(), y: z.number(), element: z.string() })),
+  atoms: z.array(z.object({
+    index: z.number(),
+    x: z.number(),
+    y: z.number(),
+    element: z.string(),
+    charge: z.number().optional(),
+    radical: z.enum(["singlet", "doublet", "triplet"]).optional(),
+    isotopeMass: z.number().optional()
+  })),
   bonds: z.array(z.object({ from: z.number(), to: z.number(), order: z.number() }))
 });
 

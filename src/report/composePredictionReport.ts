@@ -7,7 +7,7 @@ import type {
 } from "@chemdraft/plugin-api";
 
 import { isRuleEstimated, PROTON_HIGH_DISPERSION_CROSS_CHECK_PPM } from "../domain/contracts";
-import type { NmrNucleus, NmrPredictionResult, NmrReferenceDatabase, NmrResonance } from "../domain/contracts";
+import type { NmrNucleus, NmrPredictionResult, NmrReferenceDatabase, NmrResonance, NmrStructureAtom } from "../domain/contracts";
 import type { CommandError } from "../application/mapSelection";
 import { MEASURED_ACCURACY, PHOSPHORUS_MEASURED_ACCURACY } from "../providers/ocl/measuredAccuracy";
 import { GNN_AGREEMENT_BANDS, GNN_MEASURED_ACCURACY, GNN_MODEL_RELEASE } from "../providers/gnn/modelRelease";
@@ -215,9 +215,29 @@ function resultMethodLabel(result: NmrPredictionResult, methods: ResultMethodSum
   if (methods.hasGnn) {
     return ["GNN prediction", ...(methods.hasHose ? ["HOSE lookup"] : []), ...(methods.hasRules ? ["rule-estimated"] : [])].join(" + ");
   }
-  if (methods.hasHose && methods.hasRules) return "hose-fragment + rule-estimated";
+  if (methods.hasHose && methods.hasRules) return "HOSE lookup + rule-estimated";
   if (methods.hasRules) return "rule-estimated";
-  return result.backend.method;
+  if (methods.hasHose) return "HOSE lookup";
+  return backendMethodName(result.backend.method);
+}
+
+/** User-facing name for a backend method id. Raw ids (e.g. `hose-fragment`) never reach the panel
+ *  text; the names match the per-resonance method labels. */
+function backendMethodName(method: string): string {
+  switch (method) {
+    case "hose-fragment":
+      return "HOSE lookup";
+    case "gnn":
+      return "GNN prediction";
+    case "fixture-fragment":
+      return "synthetic fixture";
+    case "dft":
+      return "DFT calculation";
+    case "hybrid":
+      return "hybrid method";
+    default:
+      return "predicted (other method)";
+  }
 }
 
 function linkedFigureSection(result: NmrPredictionResult, methods: ResultMethodSummary): PluginLinkedFigureSection {
@@ -303,13 +323,49 @@ function linkedFigureSection(result: NmrPredictionResult, methods: ResultMethodS
   }
 
   if (result.depiction) {
-    section.structure = {
-      atoms: result.depiction.atoms.map((atom) => ({ index: atom.index, x: atom.x, y: atom.y, element: atom.element })),
-      bonds: result.depiction.bonds.map((bond) => ({ from: bond.from, to: bond.to, order: bond.order }))
-    };
+    // The host draws each non-carbon atom's `element` string as its label and has no separate charge,
+    // radical or isotope field, so those marks travel in the label ("N+", "O−", "13C", "C•").
+    const labels = result.depiction.atoms.map(depictionAtomLabel);
+    if (labels.every((label): label is string => label !== undefined)) {
+      section.structure = {
+        atoms: result.depiction.atoms.map((atom, position) => ({ index: atom.index, x: atom.x, y: atom.y, element: labels[position] })),
+        bonds: result.depiction.bonds.map((bond) => ({ from: bond.from, to: bond.to, order: bond.order }))
+      };
+    } else {
+      // Never draw a structure that silently loses a charge, radical or isotope label.
+      section.caption = section.caption ? `${section.caption} ${STRUCTURE_OMITTED_NOTICE}` : STRUCTURE_OMITTED_NOTICE;
+    }
   }
 
   return section;
+}
+
+const STRUCTURE_OMITTED_NOTICE =
+  "Structure drawing omitted: an atom's charge, radical or isotope state cannot be drawn faithfully here.";
+const MINUS_SIGN = "\u2212";
+
+/** The drawn label for one depiction atom: isotope mass, element, radical dots and formal charge
+ *  (e.g. "N+", "O−", "13C", "C•", "Fe2+"). `undefined` when a state has no faithful mark (a singlet
+ *  radical pair, or a non-integer charge or mass), so the caller omits the drawing instead. */
+export function depictionAtomLabel(atom: NmrStructureAtom): string | undefined {
+  let label = atom.element;
+  if (atom.isotopeMass !== undefined) {
+    if (!Number.isInteger(atom.isotopeMass) || atom.isotopeMass <= 0) return undefined;
+    label = `${atom.isotopeMass}${label}`;
+  }
+  if (atom.radical === "doublet") {
+    label += "•";
+  } else if (atom.radical === "triplet") {
+    label += "••";
+  } else if (atom.radical !== undefined) {
+    return undefined;
+  }
+  const charge = atom.charge ?? 0;
+  if (!Number.isInteger(charge)) return undefined;
+  if (charge !== 0) {
+    label += `${Math.abs(charge) === 1 ? "" : Math.abs(charge)}${charge > 0 ? "+" : MINUS_SIGN}`;
+  }
+  return label;
 }
 
 function figureCaption(methods: ResultMethodSummary, nucleus: NmrNucleus): string {
@@ -452,7 +508,7 @@ function confidenceLabel(resonance: NmrResonance): string {
     return "—";
   }
   const { matchedSphere, sampleCount } = resonance.evidence ?? {};
-  return `${tier === "medium" ? "med" : tier} · s${matchedSphere}, n=${sampleCount}`;
+  return `${tier} · s${matchedSphere}, n=${sampleCount}`;
 }
 
 /** Confidence label plus every paired increment value. The table always shows both numbers

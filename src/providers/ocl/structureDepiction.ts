@@ -1,6 +1,6 @@
 import * as OCL from "openchemlib";
 
-import type { NmrStructureBond, NmrStructureDepiction } from "../../domain/contracts";
+import type { NmrStructureAtom, NmrStructureBond, NmrStructureDepiction } from "../../domain/contracts";
 import { isDeuterium } from "./hydrogenIsotopes";
 
 /**
@@ -26,12 +26,24 @@ export function buildStructureDepiction(molecule: OCL.Molecule): NmrStructureDep
     return undefined;
   }
 
-  const atoms = Array.from({ length: atomCount }, (_unused, atom) => ({
-    index: atom,
-    x: round(molecule.getAtomX(atom)),
-    y: round(molecule.getAtomY(atom)),
-    element: isDeuterium(molecule, atom) ? "D" : OCL.Molecule.cAtomLabel[molecule.getAtomicNo(atom)] ?? `Z${molecule.getAtomicNo(atom)}`
-  }));
+  const atoms = Array.from({ length: atomCount }, (_unused, atom): NmrStructureAtom => {
+    const deuterium = isDeuterium(molecule, atom);
+    const depicted: NmrStructureAtom = {
+      index: atom,
+      x: round(molecule.getAtomX(atom)),
+      y: round(molecule.getAtomY(atom)),
+      element: deuterium ? "D" : OCL.Molecule.cAtomLabel[molecule.getAtomicNo(atom)] ?? `Z${molecule.getAtomicNo(atom)}`
+    };
+    // Charge, radical and isotope travel with the atom so the drawing can show them; a depiction
+    // that drops them misrepresents the structure (e.g. pyridine N-oxide drawn as neutral N and O).
+    const charge = molecule.getAtomCharge(atom);
+    if (charge !== 0) depicted.charge = charge;
+    const radical = radicalState(molecule.getAtomRadical(atom));
+    if (radical) depicted.radical = radical;
+    const mass = molecule.getAtomMass(atom);
+    if (mass !== 0 && !deuterium) depicted.isotopeMass = mass;
+    return depicted;
+  });
 
   const bonds: NmrStructureBond[] = [];
   for (let bond = 0; bond < molecule.getAllBonds(); bond += 1) {
@@ -45,6 +57,13 @@ export function buildStructureDepiction(molecule: OCL.Molecule): NmrStructureDep
   }
 
   return { atoms, bonds };
+}
+
+function radicalState(radical: number): NmrStructureAtom["radical"] {
+  if (radical === OCL.Molecule.cAtomRadicalStateD) return "doublet";
+  if (radical === OCL.Molecule.cAtomRadicalStateT) return "triplet";
+  if (radical === OCL.Molecule.cAtomRadicalStateS) return "singlet";
+  return undefined;
 }
 
 function round(value: number): number {

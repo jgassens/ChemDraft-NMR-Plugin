@@ -133,7 +133,7 @@ describe("composePredictionReport", () => {
     // Confidence is column index 6 (after ± σ); rows are sorted by δ descending, matching input order.
     expect(table.rows.map((row) => row[6])).toEqual([
       "high · s4, n=42",
-      "med · s2, n=5",
+      "medium · s2, n=5",
       "low · s1, n=30",
       "low · s4, n=2",
       "est."
@@ -225,7 +225,7 @@ describe("composePredictionReport", () => {
     const report = composePredictionReport(source, mixed);
     expect(textBodies(report)).toContain("Mixed result");
     expect(textBodies(report)).toContain("rule-estimated shifts are marked ≈ in the table");
-    expect(textBodies(report)).toContain('"label":"Method","value":"hose-fragment + rule-estimated"');
+    expect(textBodies(report)).toContain('"label":"Method","value":"HOSE lookup + rule-estimated"');
     const figure = report.sections.find((section) => section.kind === "linkedFigure");
     if (!figure || figure.kind !== "linkedFigure") throw new Error("expected a linkedFigure section");
     expect(figure.spectrum.peaks[0]).not.toHaveProperty("estimated");
