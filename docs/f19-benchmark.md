@@ -1,4 +1,4 @@
-# ¹⁹F HOSE benchmark (pre-registered protocol)
+# ¹⁹F GNN and HOSE benchmark (pre-registered protocol)
 
 Status: **protocol only.** Written and committed before any split assignment is computed and
 before any test or gate data is scored. Nothing in this file may change after the split is
@@ -48,63 +48,95 @@ Every drop is counted by reason.
    spellings; supplement files of one paper share a key.
 7. **Identity.** A stereo-free OpenChemLib idcode per molecule (as in the ³¹P benchmark).
 
-NMRShiftDB2 gate records go through steps 2, 3 and 5. They are assigned, so the shift of a record
-is the median of its assignments to the single fluorine class. All gate records with the same
-idcode are then collapsed to one gate molecule: the median over its records. Gate molecules with
-more than one fluorine environment are counted and not scored (§6).
+NMRShiftDB2 gate records go through steps 2 and 5 (they are assigned, so steps 3 and 4 do not
+apply). The shift of a fluorine class in a record is the median of its assignments. All gate
+records with the same idcode are then collapsed: one gate observation per (idcode, fluorine
+class), the median over its records. Gate molecules are labeled **single-environment** (one
+fluorine class) or **multi-environment** (more than one); the two strata are scored separately
+(§7).
 
 ## 3. Split (pre-registered)
 
 Hash each row's source key (UTF-8) with SHA-256, read the first four bytes as an unsigned
-big-endian integer, take it modulo 1000, and hold out rows with buckets below 100 as the
-**in-source test** ("held-out source papers, 10%, molecule-deduplicated"). All others are
-training.
+big-endian integer and take it modulo 1000. Buckets below 100 are the **in-source test**
+("held-out source papers, 10%, molecule-deduplicated"), 100 to 199 are **validation**, and the
+rest are **train**.
+
+Identity guards (applied to rows before anything is collapsed or trained):
+
+- drop from train and validation every row whose idcode occurs in the in-source test;
+- drop from train every row whose idcode occurs in validation;
+- drop from train, validation and test every row whose idcode occurs among the gate molecules
+  (both strata), so the model and every scored table have never seen a gate molecule.
 
 ## 4. Observations and table compilation (fixed order)
 
 **Scored in-source test unit:** one observation per (idcode, source key) pair in the test
 partition, the median of that pair's row shifts. Each observation belongs to exactly one source,
-which the bootstrap resamples (§7).
+which the bootstrap resamples (§7). Validation observations are formed the same way.
 
-**Table inputs.** Every table is compiled in this order:
+**Table and training inputs.** Every HOSE table and the GNN training set are compiled in this
+order:
 
-1. **Identity exclusion.** Benchmark table: drop training rows whose idcode occurs in the
-   in-source test. Gate table: drop NMRexp rows whose idcode occurs among the scored gate
-   molecules. Production table: none.
+1. **Identity exclusion** (§3).
 2. **Molecule collapse.** One observation per idcode: the median of that molecule's row shifts
    across all of its sources, with spread (max − min), row count and the list of contributing
    source keys recorded.
-3. **Outlier filtering (pre-registered; table inputs only, never scored observations).** Each
-   sphere (4, 3, 2, 1) is filtered independently: for each environment at that sphere with at
-   least 5 molecule observations, compute the median and the scaled MAD (1.4826 × median absolute
-   deviation, floor 1 ppm) and drop observations more than 3 scaled MADs from the median. A drop
-   removes the observation from that sphere's environment only; it stays in the other spheres'
-   environments unless their own filtering drops it. Drops are counted per sphere and per
-   environment, and attributed once to each contributing source key; the most-affected source
-   keys are listed by count only.
-4. **Minimum-n pruning.** Keep environments with at least 5 observations after filtering.
+3. **Outlier filtering (pre-registered; never applied to validation, test or gate
+   observations).** Each sphere (4, 3, 2, 1) is filtered independently: for each environment at
+   that sphere with at least 5 molecule observations, compute the median and the scaled MAD
+   (1.4826 × median absolute deviation, floor 1 ppm) and drop observations more than 3 scaled
+   MADs from the median. A drop removes the observation from that sphere's environment only.
+   Drops are counted per sphere and per environment, and attributed once to each contributing
+   source key; the most-affected source keys are listed by count only. **GNN training** uses the
+   same filter: a training molecule is excluded from GNN training when the filter drops it at
+   the deepest sphere whose environment has at least 5 observations.
+4. **Minimum-n pruning** (tables only). Keep environments with at least 5 observations after
+   filtering.
 
 ## 5. Predictor
 
-The plugin's HOSE lookup, unchanged from ¹H/¹³C/³¹P: median from the deepest matching sphere
-(4 through 1), tiers by sphere exactly as the production lookup assigns them. No shift is ever
-produced for an unmatched environment. Nothing in this protocol is tuned; there is no validation
-partition.
+The shipped ¹⁹F predictor has the same architecture as the shipped ¹H/¹³C predictor
+(nmrexp-02): a trained per-atom GNN is the main predictor, and the plugin's HOSE lookup is its
+cross-check and fallback.
 
-| Table | Built from | Scored on |
+**GNN.** The plugin's own featurizer (Path B, `docs/gnn-features.md`) extended to target ¹⁹F,
+with a TypeScript/Python parity check on validation molecules passing before any training run.
+Architecture, loss, optimizer and every hyperparameter are those of the shipped ¹³C model
+(nmrexp-02's selected configuration), fixed; nothing is searched. Each training molecule labels
+all of its fluorine atoms with its collapsed shift. Label centering and scaling are computed on
+train. Three seeds (1, 2, 3) are trained on train only with early stopping on validation; the
+seed with the lowest validation MAE is selected. The selected model is the shipped model (no
+retraining on more data).
+
+**HOSE lookup**, unchanged from ¹H/¹³C/³¹P: median from the deepest matching sphere (4 through
+1), environments with at least 5 observations, tiers by sphere exactly as the production lookup
+assigns them. No shift is ever produced for an unmatched environment.
+
+| HOSE table | Built from | Used for |
 |---|---|---|
-| benchmark table | NMRexp training partition | in-source test |
-| gate table | all NMRexp rows minus gate identities | NMRShiftDB2 gate |
-| production table | all NMRexp rows | not scored |
+| benchmark table | train | validation (band) and in-source test |
+| gate table | train, validation and test, minus gate identities (§3) | gate |
+| production table | all NMRexp rows | shipped fallback; not scored |
 
 The production table contains NMRexp data only. NMRShiftDB2 ¹⁹F atoms stay the independent gate
-and are not mixed into any table in this version.
+and are not mixed into any table or into GNN training in this version.
+
+**Combined predictor (what ships and what is scored).** The decline, fallback, tier and
+disagreement rules of the experiment repository's `ABSTENTION.md` (commit `69463fb`), applied to
+¹⁹F: domain counts (element, charge and radical state, size) come from the ¹⁹F training
+partition; an atom the GNN declines, or every atom when the model is missing or fails its
+checksum, falls back to HOSE; with no HOSE match it gets no shift. The **agreement band** is the
+90th percentile of |GNN − observed| on validation, rounded up to 0.5 ppm. Tiers and the
+disagreement warning follow `ABSTENTION.md` §3 and §4 with that band. Nothing is averaged.
 
 ## 6. Declining
 
-The first version declines every molecule with more than one fluorine environment (no shift, a
-warning naming the reason), in prediction as in training. A fluorine type that does not pass the
-type rule in §7, including an unjudged type, is declined in production.
+**Multi-environment molecules.** The GNN is trained only on single-environment molecules but
+predicts per atom. Multi-environment molecules ship only if their gate stratum passes rule 4 in
+§7; otherwise the first version declines every molecule with more than one fluorine environment
+(no shift, a warning naming the reason). A fluorine type that does not pass the type rule in §7,
+including an unjudged type, is declined in production.
 
 **Fluorine types**, by the atom the fluorine is bonded to, assigned by the first rule that
 applies, in this order:
@@ -120,52 +152,59 @@ applies, in this order:
 
 ## 7. Metrics and decision rule
 
-For each scored set, named with its partition on every figure: coverage (matched observations
-over scored observations), MAE, RMSE, median AE and P90 AE over matched observations; the same by
-tier and by fluorine type.
+For each scored set and stratum, named with its partition on every figure: coverage (observations
+given a shift over scored observations), MAE, RMSE, median AE and P90 AE over observations given
+a shift; the same by tier, by method actually used (GNN or HOSE fallback) and by fluorine type.
+GNN-alone and HOSE-alone figures on the same observations are reported beside the combined
+predictor; only the combined predictor is judged.
 
 **Intervals.** Percentile bootstrap, 1000 resamples, seed 1, with the PRNG, the group draw and
 the percentile method of `src/providers/ocl/benchmark.ts` at commit `eb5210a`: draw as many
-groups as the scored set has, with replacement; every drawn group contributes all of its matched
-errors (a group with no matches is drawn and contributes none); report the 2.5th and 97.5th
-percentiles. Concretely: the generator is the 32-bit LCG `state = state × 1664525 + 1013904223
-mod 2³²` starting from 1; each draw picks group `floor(state / 2³² × groupCount)`; a resample with
-no matched errors is skipped; the interval ends are the values at sorted positions
-`ceil(0.025 × n) − 1` and `ceil(0.975 × n) − 1`. Groups are source keys for the in-source test
-and gate idcodes for the gate, in byte-sorted order of the key. The paired type comparison in
-rule 3 uses the same draws, computing both MAEs on each resample.
+groups as the scored set has, with replacement; every drawn group contributes all of its errors
+(a group with none is drawn and contributes none); report the 2.5th and 97.5th percentiles.
+Concretely: the generator is the 32-bit LCG `state = state × 1664525 + 1013904223 mod 2³²`
+starting from 1; each draw picks group `floor(state / 2³² × groupCount)`; a resample with no
+errors is skipped; the interval ends are the values at sorted positions `ceil(0.025 × n) − 1`
+and `ceil(0.975 × n) − 1`. Groups are source keys for the in-source test and gate idcodes for the
+gate, in byte-sorted order of the key. Paired comparisons use the same draws, computing both
+sides on each resample.
 
 **Type baseline ("no prediction" comparator).** For each fluorine type, predict the median shift
-of that type over the table's collapsed molecule observations (after identity exclusion and
-molecule collapse, before outlier filtering), scored on the same matched observations.
+of that type over the train partition's collapsed molecule observations (after identity
+exclusion and molecule collapse, before outlier filtering), scored on the same observations.
 
 **Decision rule, fixed before opening:**
 
-1. **Primary (gate).** On the NMRShiftDB2 gate, the upper end of the 95% interval for MAE over
-   matched molecules is at most **B ppm**.
-2. **Secondary (in-source).** The same for the in-source test. If 1 passes and 2 fails, the
-   ¹⁹F does not ship in this version.
-3. **Types.** A fluorine type ships only if, on the gate, it has at least 20 matched molecules,
-   the upper end of its MAE interval is at most B ppm, and the lower end of the paired bootstrap
-   interval for (baseline AE − lookup AE), same resamples, is above 0. Every other type,
-   including one with fewer than 20 matched gate molecules ("unjudged"), is declined in this
+1. **Primary (gate, single-environment stratum).** The upper end of the 95% interval for the
+   combined predictor's MAE is at most **B ppm**.
+2. **Secondary (in-source test).** The same on the in-source test. If 1 passes and 2 fails, ¹⁹F
+   does not ship in this version.
+3. **Types.** A fluorine type ships only if, on the gate single-environment stratum, it has at
+   least 20 scored molecules, the upper end of its combined MAE interval is at most B ppm, and
+   the lower end of the paired interval for (baseline AE − combined AE) is above 0. Every other
+   type, including one with fewer than 20 scored gate molecules ("unjudged"), is declined in this
    version.
+4. **Multi-environment molecules.** They ship only if the gate multi-environment stratum has at
+   least 20 molecules and the upper end of its combined MAE interval is at most B ppm; otherwise
+   they are declined in this version.
+5. Coverage is reported for every set and stratum; it is not a threshold.
 
-No result in this section can be overridden after opening. Shipping a failed or unjudged type, or
-¹⁹F after a failed rule, needs a new pre-registered protocol scored on data not yet opened; every
-figure from this protocol's sets is then reported as a non-independent opening.
-4. Coverage on both sets is reported; it is not a threshold.
+No result in this section can be overridden after opening. Shipping anything that failed or was
+unjudged needs a new pre-registered protocol scored on data not yet opened; every figure from this
+protocol's sets is then reported as a non-independent opening.
 
-**B = TBD-owner.** The owner sets B before either scored set is opened. The scoring command
-refuses to run while B is unset.
+**B = TBD-owner.** The owner sets B for the combined predictor before either scored set is
+opened. The scoring command refuses to run while B is unset.
 
 ## 8. Opening
 
 The split assignment (source key → partition) is computed only after this protocol is committed
-and reviewed, and records this protocol's commit hash. Before scoring, `freeze.json` records the
-SHA-256 of both source files, the split assignment, the three tables, the scoring code commit,
-and B. The in-source test and the gate are each scored once. Any rerun after opening is reported
-as a second, non-independent opening, with the first figures kept.
+and reviewed, and records this protocol's commit hash. Training and seed selection use train and
+validation only. Before scoring, `freeze.json` records the SHA-256 of both source files, the split
+assignment, the three HOSE tables, the selected model and its `domain.json`, the agreement band,
+the featurizer parity result, the scoring code commit, and B. The in-source test and the gate are
+each scored once. Any rerun after opening is reported as a second, non-independent opening, with
+the first figures kept.
 
 ## 9. Data licenses and credit
 
@@ -180,10 +219,10 @@ as a second, non-independent opening, with the first figures kept.
     supplied;
   - the license name and URI, https://creativecommons.org/licenses/by/4.0/;
   - the changes: rows filtered (single fluorine environment, single peak), deduplicated, cleaned
-    by the outlier rule, and transformed into aggregated HOSE shift statistics; no structures are
-    included.
+    by the outlier rule, and transformed into aggregated HOSE shift statistics and GNN model weights; no
+    structures are included.
   This is kept separate from the MIT code license.
-- **NMRShiftDB2**: used only as the gate in this version and not shipped in any ¹⁹F table. If a
+- **NMRShiftDB2**: used only as the gate in this version; not in any ¹⁹F table or in GNN training. If a
   later version ships its ¹⁹F atoms, that table carries the NMRShiftDB2 license and attribution
   obligations in full.
 - **Terms that are not attribution-only.** The Scientific Data article text is CC BY-NC-ND;
