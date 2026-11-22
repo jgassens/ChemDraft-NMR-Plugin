@@ -7,7 +7,8 @@ import { fluorineType, type FluorineType } from "./fluorineType";
 /**
  * NMRexp ¹⁹F cleaning, docs/f19-benchmark.md §2 steps 2–7. Step 1 (`NMR_type` exactly `19F NMR`)
  * is applied by scripts/f19/extract_nmrexp_19f.py, which also parses `NMR_processed` with a
- * literal parser and hands over each tuple's first element as JSON.
+ * literal parser and hands over each tuple's first element as JSON, every number as its shortest
+ * round-trip decimal string (Python `repr`).
  */
 
 /** One row as written by the extractor. */
@@ -17,7 +18,10 @@ export interface ExtractedRow {
   filename: string;
   smiles: string | null;
   solvent: string | null;
-  /** Each `NMR_processed` tuple's first element; null when the column did not parse. */
+  /**
+   * Each `NMR_processed` tuple's first element, numbers as decimal strings; null when the column did
+   * not parse.
+   */
   peaks: unknown[] | null;
 }
 
@@ -63,23 +67,93 @@ export const DROP_REASONS = [
 export type DropReason = (typeof DROP_REASONS)[number];
 export type PeakDropReason = Extract<DropReason, "no-peak-values" | "peak-shape" | "peak-range-too-wide" | "peak-spread">;
 
-export const MAX_RANGE_WIDTH_PPM = 1;
-export const MAX_PEAK_SPREAD_PPM = 0.05;
+/**
+ * §2.4 limits, as exact decimal strings. Shifts are reported as decimals, and a binary-float
+ * difference such as 120.15 − 120.10 can land a few ulps above 0.05, while any rounding (to
+ * micro-ppm, say) would accept values just above a limit. So the extractor hands over each value as
+ * its shortest round-trip decimal string, and the width and spread rules compare those decimals
+ * exactly as scaled integers. Midpoints and medians are still computed as numbers from the strings.
+ */
+export const MAX_RANGE_WIDTH_PPM = "1";
+export const MAX_PEAK_SPREAD_PPM = "0.05";
 export const MIN_SHIFT_PPM = -300;
 export const MAX_SHIFT_PPM = 250;
-/**
- * Shifts are reported as decimals, so a binary-float difference such as 120.15 − 120.10 can land a
- * few ulps above 0.05. The width and spread rules therefore compare exact integers: each value is
- * rounded to integer micro-ppm (1e-6 ppm, far below the 0.001 ppm a reported value resolves), and
- * the limits are the integers below. Midpoints and medians still use the original numbers.
- */
-const MICRO_PPM_PER_PPM = 1_000_000;
-const MAX_RANGE_WIDTH_MICRO_PPM = 1_000_000;
-const MAX_PEAK_SPREAD_MICRO_PPM = 50_000;
 
-function microPpm(value: number): number {
-  return Math.round(value * MICRO_PPM_PER_PPM);
+/** An exact decimal: `coefficient × 10^−scale`, normalized (no trailing zeros; zero has scale 0). */
+interface Decimal {
+  coefficient: bigint;
+  scale: number;
 }
+
+/**
+ * A plain decimal as written by Python's `repr` of an int or float: optional minus sign, digits,
+ * optional fraction, optional exponent. No leading plus, no whitespace, no bare dot, no inf/nan.
+ */
+const DECIMAL_PATTERN = /^(-?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/;
+/** Python's shortest float repr needs at most 17 digits and exponent −324; far more than enough. */
+const MAX_DECIMAL_SCALE = 400;
+const ZERO = BigInt(0);
+const TEN = BigInt(10);
+
+/** Exact value and number of a decimal string, or null if it is malformed or not finite. */
+export function parseDecimal(text: string): { exact: Decimal; value: number } | null {
+  const match = DECIMAL_PATTERN.exec(text);
+  if (!match) return null;
+  const value = Number(text);
+  if (!Number.isFinite(value)) return null;
+  const [, sign, whole, fraction = "", exponent = "0"] = match;
+  const exponentValue = Number(exponent);
+  if (!Number.isSafeInteger(exponentValue)) return null;
+  let coefficient = BigInt(`${sign}${whole}${fraction}`);
+  let scale = fraction.length - exponentValue;
+  if (coefficient === ZERO) return { exact: { coefficient: ZERO, scale: 0 }, value };
+  while (coefficient % TEN === ZERO) {
+    coefficient /= TEN;
+    scale -= 1;
+  }
+  if (scale > MAX_DECIMAL_SCALE) return null;
+  if (scale < 0) {
+    // Bounded: a finite double is below 1e309.
+    coefficient *= TEN ** BigInt(-scale);
+    scale = 0;
+  }
+  return { exact: { coefficient, scale }, value };
+}
+
+/** The coefficient of `d` at the (larger or equal) scale `scale`. */
+function atScale(d: Decimal, scale: number): bigint {
+  return d.coefficient * TEN ** BigInt(scale - d.scale);
+}
+
+function add(a: Decimal, b: Decimal): Decimal {
+  const scale = Math.max(a.scale, b.scale);
+  return { coefficient: atScale(a, scale) + atScale(b, scale), scale };
+}
+
+function subtract(a: Decimal, b: Decimal): Decimal {
+  return add(a, { coefficient: -b.coefficient, scale: b.scale });
+}
+
+function compare(a: Decimal, b: Decimal): number {
+  const scale = Math.max(a.scale, b.scale);
+  const x = atScale(a, scale);
+  const y = atScale(b, scale);
+  return x < y ? -1 : x > y ? 1 : 0;
+}
+
+function abs(d: Decimal): Decimal {
+  return d.coefficient < ZERO ? { coefficient: -d.coefficient, scale: d.scale } : d;
+}
+
+function exactLimit(text: string): Decimal {
+  const parsed = parseDecimal(text);
+  if (!parsed) throw new Error(`invalid limit ${text}`);
+  return parsed.exact;
+}
+
+const MAX_RANGE_WIDTH = exactLimit(MAX_RANGE_WIDTH_PPM);
+/** Spread is compared on doubled values, so a range midpoint (a + b) / 2 stays exact as a + b. */
+const MAX_DOUBLED_SPREAD = add(exactLimit(MAX_PEAK_SPREAD_PPM), exactLimit(MAX_PEAK_SPREAD_PPM));
 
 /** §2.6: lowercase, trim, then remove ONE trailing supplement suffix. */
 export function sourceKey(filename: string): string {
@@ -89,25 +163,41 @@ export function sourceKey(filename: string): string {
     .replace(/(?:_moesm\d+_esm|_si_\d+|-sup-\d+-misc_information)$/, "");
 }
 
-/** §2.4: the row's single shift from its tuples' shift elements, or the reason it drops. */
+/**
+ * §2.4: the row's single shift from its tuples' shift elements, or the reason it drops. Each
+ * element is a decimal string or a two-element list of decimal strings (a range); anything else,
+ * malformed strings included, drops as peak shape.
+ */
 export function peakShift(peaks: readonly unknown[]): { shift: number } | { drop: PeakDropReason } {
   if (peaks.length === 0) return { drop: "no-peak-values" };
   const values: number[] = [];
+  const doubled: Decimal[] = [];
   for (const peak of peaks) {
-    if (isFiniteNumber(peak)) {
-      values.push(peak);
-    } else if (Array.isArray(peak) && peak.length === 2 && isFiniteNumber(peak[0]) && isFiniteNumber(peak[1])) {
-      const [a, b] = peak;
-      if (Math.abs(microPpm(a) - microPpm(b)) > MAX_RANGE_WIDTH_MICRO_PPM) return { drop: "peak-range-too-wide" };
-      values.push((a + b) / 2);
-    } else {
-      return { drop: "peak-shape" };
+    const single = typeof peak === "string" ? parseDecimal(peak) : null;
+    if (single) {
+      values.push(single.value);
+      doubled.push(add(single.exact, single.exact));
+      continue;
     }
+    if (Array.isArray(peak) && peak.length === 2 && typeof peak[0] === "string" && typeof peak[1] === "string") {
+      const a = parseDecimal(peak[0]);
+      const b = parseDecimal(peak[1]);
+      if (a && b) {
+        if (compare(abs(subtract(a.exact, b.exact)), MAX_RANGE_WIDTH) > 0) return { drop: "peak-range-too-wide" };
+        values.push((a.value + b.value) / 2);
+        doubled.push(add(a.exact, b.exact));
+        continue;
+      }
+    }
+    return { drop: "peak-shape" };
   }
-  const micro = values.map(microPpm);
-  if (Math.max(...micro) - Math.min(...micro) > MAX_PEAK_SPREAD_MICRO_PPM) {
-    return { drop: "peak-spread" };
+  let min = doubled[0];
+  let max = doubled[0];
+  for (const d of doubled) {
+    if (compare(d, min) < 0) min = d;
+    if (compare(d, max) > 0) max = d;
   }
+  if (compare(subtract(max, min), MAX_DOUBLED_SPREAD) > 0) return { drop: "peak-spread" };
   return { shift: median(values) };
 }
 
@@ -232,8 +322,4 @@ export function median(values: readonly number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
-}
-
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
 }

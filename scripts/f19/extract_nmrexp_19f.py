@@ -9,9 +9,10 @@ Keeps rows whose NMR_type is exactly "19F NMR" and writes one JSON object per ke
 {"row", "filename", "smiles", "solvent", "peaks"}. "row" is the 0-based row index in the parquet.
 NMR_processed is parsed with ast.literal_eval (a literal parser; it never runs code) and must be a
 list of (shift, multiplicity, J) tuples of exactly three elements. "peaks" is each tuple's first
-element: a JSON number, a JSON list (its items converted the same way), or null for anything else
-(strings, booleans, tuples, non-finite numbers), which the cleaner then drops as an unrecognized
-peak shape. A value that does not parse, is not a list, or holds anything but three-element tuples
+element: a number as a JSON string holding its shortest round-trip decimal (Python's repr, e.g.
+-95.47 -> "-95.47", 1e-05 -> "1e-05", -0.0 -> "-0.0"), so the cleaner can compare the decimals
+exactly; a JSON list (its items converted the same way); or null for anything else (strings,
+booleans, tuples, non-finite numbers), which the cleaner then drops as an unrecognized peak shape. A value that does not parse, is not a list, or holds anything but three-element tuples
 gives "peaks": null, which the cleaner drops. No chemistry is done here. Only counts are printed
 (to stderr), including the number of parse failures by kind.
 """
@@ -52,16 +53,17 @@ def is_peak_tuple(item):
 
 
 def shift_element(value):
-    """A tuple's first element as JSON: a number, a list of converted items, or None.
+    """A tuple's first element as JSON: a decimal string, a list of converted items, or None.
 
-    A two-number list comes through as a list and is read as a range by the cleaner.
+    A number becomes repr() of the parsed number, its shortest round-trip decimal. A two-number
+    list comes through as a list of two such strings and is read as a range by the cleaner.
     """
     if isinstance(value, bool):
         return None
     if isinstance(value, int):
-        return value
+        return repr(value)
     if isinstance(value, float):
-        return value if math.isfinite(value) else None
+        return repr(value) if math.isfinite(value) else None
     if isinstance(value, list):
         return [shift_element(item) for item in value]
     return None
