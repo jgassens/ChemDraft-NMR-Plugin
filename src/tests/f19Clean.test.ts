@@ -11,6 +11,7 @@ import {
   type CleanedRecord,
   type ExtractedRow
 } from "../providers/ocl/f19";
+import { prepareProductionLookup, productionClassRepresentative } from "../providers/ocl/productionLookup";
 
 function row(overrides: Partial<ExtractedRow> = {}): ExtractedRow {
   return {
@@ -19,7 +20,6 @@ function row(overrides: Partial<ExtractedRow> = {}): ExtractedRow {
     smiles: "CC(F)(F)F",
     solvent: "CDCl3",
     peaks: [-63.2],
-    parseError: null,
     ...overrides
   };
 }
@@ -86,6 +86,19 @@ describe("peakShift (§2.4)", () => {
     expect(peakShift([-120.0, -120.051])).toEqual({ drop: "peak-spread" });
   });
 
+  it("keeps decimal differences of exactly 1 and 0.05 even when binary floats overshoot", () => {
+    expect(peakShift([120.05, 120.0])).toHaveProperty("shift");
+    expect(peakShift([[-62.35, -61.35]])).toHaveProperty("shift");
+    // These pairs differ by exactly 0.05 or 1 in decimal but by slightly more in binary floats.
+    expect(-120.1 - -120.15).toBeGreaterThan(0.05);
+    expect(peakShift([-120.15, -120.1])).toHaveProperty("shift");
+    expect(-63.98 - -64.98).toBeGreaterThan(1);
+    const range = peakShift([[-64.98, -63.98]]);
+    expect("shift" in range && range.shift).toBeCloseTo(-64.48, 10);
+    expect(peakShift([[-64.98, -63.97]])).toEqual({ drop: "peak-range-too-wide" });
+    expect(peakShift([-120.15, -120.099])).toEqual({ drop: "peak-spread" });
+  });
+
   it("uses max − min, so a chain of close values 0.00/0.04/0.08 drops", () => {
     expect(peakShift([-100.0, -100.04, -100.08])).toEqual({ drop: "peak-spread" });
   });
@@ -142,6 +155,21 @@ describe("fluorineType (§6)", () => {
   });
 });
 
+describe("productionClassRepresentative (§2.3)", () => {
+  it("gives atoms of one class one representative and throws on an unknown atom", () => {
+    const molecule = OCL.Molecule.fromSmiles("FC(F)(F)CCF");
+    const context = prepareProductionLookup(molecule);
+    const fluorines: number[] = [];
+    for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
+      if (molecule.getAtomicNo(atom) === 9) fluorines.push(atom);
+    }
+    expect(new Set(fluorines.map((atom) => productionClassRepresentative(context, atom))).size).toBe(2);
+    expect(() => productionClassRepresentative(context, molecule.getAllAtoms())).toThrow();
+    expect(() => productionClassRepresentative(context, -1)).toThrow();
+    expect(() => productionClassRepresentative(context, 0.5)).toThrow();
+  });
+});
+
 describe("cleanRow (§2.2–2.7)", () => {
   it("keeps a clean row with source key, stereo-free idcode, shift and type", () => {
     const record = kept(cleanRow(row()));
@@ -181,7 +209,7 @@ describe("cleanRow (§2.2–2.7)", () => {
       [{ smiles: "CCO" }, "no-fluorine"],
       [{ smiles: "CF.CF" }, "fluorine-in-multiple-fragments"],
       [{ smiles: "FCCC(F)(F)F" }, "multiple-fluorine-environments"],
-      [{ peaks: null, parseError: "not-a-list" }, "peaks-unparseable"],
+      [{ peaks: null }, "peaks-unparseable"],
       [{ peaks: [] }, "no-peak-values"],
       [{ peaks: ["x"] }, "peak-shape"],
       [{ peaks: [[-60, -62]] }, "peak-range-too-wide"],

@@ -1,7 +1,7 @@
 import * as OCL from "openchemlib";
 
 import { normalizeStructure } from "../../../application/normalizeStructure";
-import { prepareProductionLookup } from "../productionLookup";
+import { prepareProductionLookup, productionClassRepresentative } from "../productionLookup";
 import { fluorineType, type FluorineType } from "./fluorineType";
 
 /**
@@ -19,7 +19,6 @@ export interface ExtractedRow {
   solvent: string | null;
   /** Each `NMR_processed` tuple's first element; null when the column did not parse. */
   peaks: unknown[] | null;
-  parseError: string | null;
 }
 
 export interface CleanedRecord {
@@ -62,11 +61,18 @@ export const MAX_PEAK_SPREAD_PPM = 0.05;
 export const MIN_SHIFT_PPM = -300;
 export const MAX_SHIFT_PPM = 250;
 /**
- * Shifts are reported as decimals, so differences such as 120.05 − 120.00 can land a few ulps
- * above 0.05 in binary floating point. The tolerance only absorbs that representation error; it is
- * eight orders of magnitude below the 0.001 ppm a reported value can resolve.
+ * Shifts are reported as decimals, so a binary-float difference such as 120.15 − 120.10 can land a
+ * few ulps above 0.05. The width and spread rules therefore compare exact integers: each value is
+ * rounded to integer micro-ppm (1e-6 ppm, far below the 0.001 ppm a reported value resolves), and
+ * the limits are the integers below. Midpoints and medians still use the original numbers.
  */
-const DECIMAL_TOLERANCE = 1e-9;
+const MICRO_PPM_PER_PPM = 1_000_000;
+const MAX_RANGE_WIDTH_MICRO_PPM = 1_000_000;
+const MAX_PEAK_SPREAD_MICRO_PPM = 50_000;
+
+function microPpm(value: number): number {
+  return Math.round(value * MICRO_PPM_PER_PPM);
+}
 
 /** §2.6: lowercase, trim, then remove ONE trailing supplement suffix. */
 export function sourceKey(filename: string): string {
@@ -85,13 +91,14 @@ export function peakShift(peaks: readonly unknown[]): { shift: number } | { drop
       values.push(peak);
     } else if (Array.isArray(peak) && peak.length === 2 && isFiniteNumber(peak[0]) && isFiniteNumber(peak[1])) {
       const [a, b] = peak;
-      if (Math.abs(a - b) > MAX_RANGE_WIDTH_PPM + DECIMAL_TOLERANCE) return { drop: "peak-range-too-wide" };
+      if (Math.abs(microPpm(a) - microPpm(b)) > MAX_RANGE_WIDTH_MICRO_PPM) return { drop: "peak-range-too-wide" };
       values.push((a + b) / 2);
     } else {
       return { drop: "peak-shape" };
     }
   }
-  if (Math.max(...values) - Math.min(...values) > MAX_PEAK_SPREAD_PPM + DECIMAL_TOLERANCE) {
+  const micro = values.map(microPpm);
+  if (Math.max(...micro) - Math.min(...micro) > MAX_PEAK_SPREAD_MICRO_PPM) {
     return { drop: "peak-spread" };
   }
   return { shift: median(values) };
@@ -128,7 +135,7 @@ export function cleanRow(row: ExtractedRow): CleanedRecord | { drop: DropReason 
   let representatives: Set<number>;
   try {
     const context = prepareProductionLookup(molecule);
-    representatives = new Set(fluorines.map((atom) => context._representativeByAtom[atom]));
+    representatives = new Set(fluorines.map((atom) => productionClassRepresentative(context, atom)));
   } catch {
     return { drop: "symmetry-classes-failed" };
   }

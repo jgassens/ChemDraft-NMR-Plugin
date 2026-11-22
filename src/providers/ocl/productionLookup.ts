@@ -100,6 +100,20 @@ export function prepareProductionLookup(
 }
 
 /**
+ * The input-molecule index of the canonical representative of `atom`'s stereo-free constitutional
+ * symmetry class. Atoms in one class share a representative; an atom outside every class (a
+ * remaining special hydrogen) is its own representative. Throws when `atom` is not an atom of the
+ * molecule passed to `prepareProductionLookup`.
+ */
+export function productionClassRepresentative(context: ProductionLookupContext, atom: number): number {
+  const representativeAtom = Number.isInteger(atom) ? context._representativeByAtom[atom] : undefined;
+  if (representativeAtom === undefined) {
+    throw new Error(`Atom ${atom} is not present in the prepared production lookup molecule.`);
+  }
+  return representativeAtom;
+}
+
+/**
  * The heavy atom whose environment keys a resonance: the atom itself for ¹³C and ³¹P, the attached
  * heavy atom for an explicit ¹H. Returns -1 when the atom cannot carry that nucleus. Indices are into the
  * molecule passed to `prepareProductionLookup`, which keeps heavy-atom indices unchanged.
