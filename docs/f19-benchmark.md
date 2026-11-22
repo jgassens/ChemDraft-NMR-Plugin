@@ -2,8 +2,7 @@
 
 Status: **protocol only.** Written and committed before any split assignment is computed and
 before any test or gate data is scored. Nothing in this file may change after the split is
-computed except the owner's shipping band B (§7), which must be set before either scored set is
-opened. Any later change is recorded under "Changes after the split" with its reason, and every
+computed. The owner's shipping band B (§7) was set to 7 ppm before the split. Any later change is recorded under "Changes after the split" with its reason, and every
 figure produced after it is reported as a non-independent opening.
 
 ## 1. Sources
@@ -193,8 +192,8 @@ No result in this section can be overridden after opening. Shipping anything tha
 unjudged needs a new pre-registered protocol scored on data not yet opened; every figure from this
 protocol's sets is then reported as a non-independent opening.
 
-**B = TBD-owner.** The owner sets B for the combined predictor before either scored set is
-opened. The scoring command refuses to run while B is unset.
+**B = 7 ppm** (owner, 2026-11-22, set before any split and before either scored set was
+opened). The scoring command reads B from the frozen record and refuses to run if it is not 7.
 
 ## 8. Opening
 
