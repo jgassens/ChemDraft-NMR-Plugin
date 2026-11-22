@@ -11,3 +11,5 @@ local-data/
 # Logs & OS cruft
 *.log
 .DS_Store
+__pycache__/
+*.pyc
