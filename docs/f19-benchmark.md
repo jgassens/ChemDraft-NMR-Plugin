@@ -46,19 +46,23 @@ Every drop is counted by reason.
 6. **Source key.** `Filename` (the DOI with `/` written as `_`, or a publisher supplement name),
    lowercased and trimmed, with one trailing `_moesm<digits>_esm`, `_si_<digits>` or
    `-sup-<digits>-misc_information` removed. Every row has a `Filename`; no row is dropped here.
-   Because the key comes from one column with one rule, the same paper cannot appear under two
-   spellings; supplement files of one paper share a key.
+   Supplement files of one paper that differ only by these suffixes share a key; other ways one
+   paper could appear under two keys are not detected (§3).
 7. **Identity.** Two idcodes of the fluorine-bearing fragment: the **stereo-free idcode** (as
    in the ³¹P benchmark), used for every identity guard and for HOSE-table collapse; and the
    **stereo idcode** (OpenChemLib's default idcode, keeping R/S and E/Z), used for GNN
    observations, so every GNN observation has exactly one input graph.
 
-NMRShiftDB2 gate records go through steps 2, 5 and 7 (they are assigned, so steps 3 and 4 do
-not apply). A gate **class** is a fluorine symmetry class of the fluorine-bearing fragment, keyed
-by (stereo idcode, the class's canonical representative atom as `prepareProductionLookup`
-assigns it), so records that number their atoms differently join on the same key. A class's
-shift in a record is the median of its assignments; a class's gate observation is the median
-over all records with that key. Gate molecules with one fluorine class form the
+NMRShiftDB2 gate records go through steps 2 and 7 (they are assigned, so steps 3 and 4 do not
+apply). Every parsed gate record, before any label filtering, defines the gate identities and
+gate DOIs used by the §3 guards. A gate **class** is a fluorine symmetry class of the
+fluorine-bearing fragment, keyed by (stereo idcode, the lowest **canonical** atom index among the
+class's members in OpenChemLib's canonical numbering of that fragment); each record's assigned
+atoms are mapped into that canonical numbering first, so records that number their atoms
+differently join on the same key. Then, in this order: each assignment value outside −300 to
++250 ppm is dropped (step 5 applied per assignment); a class's shift in a record is the median of
+its remaining assignments; a class's gate observation is the median over all records with that
+key. A class with no remaining assignment has no observation; drops are counted. Gate molecules with one fluorine class form the
 **single-environment stratum**; the rest form the **multi-environment stratum**, which is
 reported descriptively only (§6, §7).
 
@@ -120,12 +124,18 @@ per-atom GNN is the main predictor and the plugin's HOSE lookup is its cross-che
 
 | HOSE table | Rows (after §3 guards and §4) | Used for |
 |---|---|---|
-| benchmark table | train | the agreement band (validation) and the in-source test |
-| gate table | train + validation + test | the gate, and the shipped fallback |
+| benchmark table | train | every validation and in-source-test prediction path: the band, the disagreement check, tiers and fallback |
+| gate table | train + validation + test | every gate prediction path, and the shipped fallback |
 
 Validation and test labels enter the gate table as table inputs only; the gate table and its
 diagnostics are never used for training, seed selection, the band or the in-source test.
 NMRShiftDB2 ¹⁹F data are never a table input or a training label.
+
+**HOSE lookup statistic:** search spheres 4, 3, 2, 1 in that order; the prediction is the
+**median** of the deepest sphere with a surviving environment (after §4 pruning). Its tier is the
+production `benchmarkTier`: **low** when the sphere is 1 or the environment has fewer than 3
+observations, **high** when the sphere is at least 3 and it has at least 8, **medium**
+otherwise.
 
 **GNN.**
 
@@ -138,8 +148,9 @@ NMRShiftDB2 ¹⁹F data are never a table input or a training label.
   `3dcc982`, with the configuration of the shipped ¹³C model as recorded in that repository's
   `runs/nmrexp-02/selection.json` (SHA-256
   `b485f1c658a225aa30156136ac4874bf5e20b123be059ee54a2a85a489124651`): hidden 384, layers 8,
-  learning rate 0.002, at most 400 epochs, patience 25, bf16; `atoms_per_batch` from the
-  script's GPU profile, recorded in `freeze.json`. Nothing is searched.
+  learning rate 0.002, at most 400 epochs, patience 25, bf16, `atoms_per_batch` 3072 (the
+  shipped ¹³C model's value), on H200 GPUs. If a run cannot fit, it stops; no setting is changed.
+  Nothing is searched.
 - Labels: each training observation labels every fluorine atom of its molecule with the
   observation's shift. Label center and scale are computed by `py/train.py` over training
   fluorine atoms after the §4 exclusions.
@@ -149,8 +160,9 @@ NMRShiftDB2 ¹⁹F data are never a table input or a training label.
 - Seeds 1, 2 and 3; the seed whose kept checkpoint has the lowest validation MAE is selected; a
   tie goes to the lower seed. The selected model is the shipped model; nothing is retrained.
 
-**Decline rules** (the plugin's `src/providers/gnn/domainRules.ts`, applied to the fluorine
-atom and its heavy neighbors; counts from the training graphs after the §4 exclusions, stored in
+**Decline rules** (the conditions of the plugin's `src/providers/gnn/domainRules.ts`, listed
+here in this document's own order, applied to every member atom of the class and its heavy
+neighbors; counts from the training graphs after the §4 exclusions, stored in
 the model's `domain.json`). The GNN declines a class when, for any member atom:
 
 1. the atom or a heavy neighbor has an element outside the featurizer's known set, or an element
@@ -163,9 +175,10 @@ the model's `domain.json`). The GNN declines a class when, for any member atom:
    training molecules).
 
 **Fallback.** A declined class, or every class when the model is missing, fails its checksum or
-fails at inference, takes the gate table's HOSE match with its production tier
-(`benchmarkTier`: sphere and sample count), labeled "HOSE lookup"; with no match it gets no
-shift. Nothing is ever averaged.
+fails at inference, takes the HOSE match of the table assigned to that path above (benchmark
+table for validation and the in-source test, gate table for the gate and in production) with
+its `benchmarkTier` tier, labeled "HOSE lookup"; with no match it gets no shift. Nothing is ever
+averaged.
 
 **Agreement band:** with the selected model and the benchmark table, the nearest-rank 90th
 percentile of |GNN − observed| over non-declined validation observations (each weighted once),
@@ -174,8 +187,9 @@ rounded up to the next 0.5 ppm.
 **Tiers for a GNN prediction:** with a HOSE match, |GNN − HOSE| ≤ band gives **high** at sphere 3
 or 4 and **medium** at sphere 1 or 2; |GNN − HOSE| strictly above the band keeps the GNN value,
 gives **low**, and adds the warning "model and reference lookup disagree" with both values.
-Without a HOSE match: **medium** when the atom's (element, charge, radical) state has at least
-500 training atoms, otherwise **low**.
+Without a HOSE match: **medium** when every member atom of the class and every heavy neighbor
+of every member has an (element, charge, radical) state with at least 500 training atoms,
+otherwise **low**.
 
 ## 6. Declining in the shipped predictor
 
@@ -218,21 +232,28 @@ unrounded values; rounding is for display only.**
 of that type over the train partition's stereo-free collapsed observations (after identity
 exclusion, before outlier filtering), scored on the same observations.
 
-**Decision rule, fixed before opening.** ¹⁹F ships only if rules 1 and 2 both pass, and then only
-for the types that pass rule 3:
+**Decision rule, fixed before opening.** Applied in this order:
 
-1. **Primary (gate, single-environment stratum).** At least 20 distinct gate molecules receive a
-   shift, and the upper end of the 95% interval for the combined predictor's MAE is at most
-   **B ppm**.
-2. **Secondary (in-source test).** At least 20 distinct molecules receive a shift, and the upper
-   end of the 95% interval for the combined MAE is at most B ppm.
-3. **Types.** A fluorine type ships only if, on the gate single-environment stratum, at least 20
-   distinct molecules of that type receive both a combined prediction and a baseline prediction,
-   the upper end of its combined MAE interval is at most B ppm, and the lower end of the paired
-   interval for (baseline AE − combined AE) is strictly above 0. A type that fails, has fewer
-   than 20 such molecules, or has an undefined interval ("unjudged") is declined in this version.
-4. Coverage is reported for every set and stratum; it is not a threshold. The multi-environment
-   stratum is reported and never changes a decision in this version.
+1. **Types (gate, single-environment stratum).** A fluorine type is *eligible* only if at least
+   20 distinct gate molecules of that type receive both a combined prediction and a baseline
+   prediction, the upper end of its combined MAE interval is at most B ppm, and the lower end of
+   the paired interval for (baseline AE − combined AE) is strictly above 0. A type that fails,
+   has fewer than 20 such molecules, or has an undefined interval ("unjudged") is declined in
+   this version.
+2. **Primary (gate, single-environment stratum, eligible types only).** At least 20 distinct gate
+   molecules of eligible types receive a shift, and the upper end of the 95% interval for the
+   combined MAE over them is at most **B ppm**. Because the eligible types were chosen on the
+   same gate, this figure is labeled "selected on the gate"; rule 3 is the independent check.
+3. **Secondary (in-source test, eligible types only).** At least 20 distinct in-source test
+   molecules of eligible types receive a shift, and the upper end of the 95% interval for the
+   combined MAE over them is at most B ppm.
+
+¹⁹F ships, for the eligible types only, if at least one type is eligible and rules 2 and 3 both
+pass; otherwise it does not ship in this version. Every coverage and error figure is reported
+twice and labeled: over all types ("before the type filter") and over eligible types ("shipped
+types"). Coverage is never a threshold. The multi-environment stratum's figures are labeled
+"diagnostic: not shipped"; the shipped predictor's coverage of multi-environment molecules is
+zero in this version, and the stratum never changes a decision.
 
 No result in this section can be overridden after opening. Shipping anything that failed or was
 unjudged needs a new pre-registered protocol scored on data not yet opened; every figure from this
