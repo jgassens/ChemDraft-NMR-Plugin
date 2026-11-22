@@ -8,6 +8,7 @@ import {
   peakShift,
   sourceKey,
   stereoFreeIdcode,
+  stereoIdcode,
   type CleanedRecord,
   type ExtractedRow
 } from "../providers/ocl/f19";
@@ -171,24 +172,42 @@ describe("productionClassRepresentative (§2.3)", () => {
 });
 
 describe("cleanRow (§2.2–2.7)", () => {
-  it("keeps a clean row with source key, stereo-free idcode, shift and type", () => {
+  it("keeps a clean row with source key, both idcodes, shift and type", () => {
     const record = kept(cleanRow(row()));
     expect(record).toEqual({
       row: 7,
       sourceKey: "10.1000_example.paper",
-      idcode: stereoFreeIdcode(OCL.Molecule.fromSmiles("CC(F)(F)F")),
+      stereoFreeIdcode: stereoFreeIdcode(OCL.Molecule.fromSmiles("CC(F)(F)F")),
+      stereoIdcode: stereoIdcode(OCL.Molecule.fromSmiles("CC(F)(F)F")),
       shift: -63.2,
       solvent: "CDCl3",
       fluorineAtoms: 3,
-      fluorineType: "CF3"
+      fluorineType: "CF3",
+      removedFragments: 0
     });
   });
 
-  it("gives stereoisomers one idcode", () => {
+  it("gives E/Z isomers one stereo-free idcode and different stereo idcodes", () => {
     const e = kept(cleanRow(row({ smiles: "F/C=C/C" })));
     const z = kept(cleanRow(row({ smiles: "F/C=C\\C" })));
-    expect(e.idcode).toBe(z.idcode);
+    expect(e.stereoFreeIdcode).toBe(z.stereoFreeIdcode);
+    expect(e.stereoIdcode).not.toBe(z.stereoIdcode);
     expect(e.fluorineType).toBe("vinyl-F");
+  });
+
+  it("gives R/S enantiomers one stereo-free idcode and different stereo idcodes", () => {
+    const r = kept(cleanRow(row({ smiles: "C[C@H](F)CC", peaks: [-172.1] })));
+    const s = kept(cleanRow(row({ smiles: "C[C@@H](F)CC", peaks: [-172.1] })));
+    const unspecified = kept(cleanRow(row({ smiles: "CC(F)CC", peaks: [-172.1] })));
+    expect(r.stereoFreeIdcode).toBe(s.stereoFreeIdcode);
+    expect(r.stereoFreeIdcode).toBe(unspecified.stereoFreeIdcode);
+    expect(r.stereoIdcode).not.toBe(s.stereoIdcode);
+    expect(new Set([r.stereoIdcode, s.stereoIdcode, unspecified.stereoIdcode]).size).toBe(3);
+  });
+
+  it("records OpenChemLib's default idcode as the stereo idcode", () => {
+    const record = kept(cleanRow(row()));
+    expect(record.stereoIdcode).toBe(OCL.Molecule.fromSmiles("CC(F)(F)F").getIDCode());
   });
 
   it("keeps a molecule with symmetric fluorines in one class", () => {
@@ -199,6 +218,47 @@ describe("cleanRow (§2.2–2.7)", () => {
 
   it("allows non-fluorine fragments (salts)", () => {
     expect(kept(cleanRow(row({ smiles: "CC(F)(F)F.[Na+].[Cl-]" }))).fluorineType).toBe("CF3");
+  });
+
+  describe("fluorine-bearing fragment only (§2.2)", () => {
+    function identity(smiles: string): Omit<CleanedRecord, "removedFragments"> {
+      const { removedFragments: _removed, ...rest } = kept(cleanRow(row({ smiles })));
+      return rest;
+    }
+
+    it("gives a fluorinated ammonium chloride the identity of the cation alone", () => {
+      const salt = kept(cleanRow(row({ smiles: "C[NH+](C)CC(F)(F)F.[Cl-]" })));
+      expect(salt.removedFragments).toBe(1);
+      expect(identity("C[NH+](C)CC(F)(F)F.[Cl-]")).toEqual(identity("C[NH+](C)CC(F)(F)F"));
+      expect(salt.stereoFreeIdcode).toBe(stereoFreeIdcode(OCL.Molecule.fromSmiles("C[NH+](C)CC(F)(F)F")));
+    });
+
+    it("gives sodium trifluoroacetate the identity of trifluoroacetate", () => {
+      const salt = kept(cleanRow(row({ smiles: "[Na+].[O-]C(=O)C(F)(F)F" })));
+      expect(salt.removedFragments).toBe(1);
+      expect(identity("[Na+].[O-]C(=O)C(F)(F)F")).toEqual(identity("[O-]C(=O)C(F)(F)F"));
+      expect(salt.stereoIdcode).toBe(stereoIdcode(OCL.Molecule.fromSmiles("[O-]C(=O)C(F)(F)F")));
+    });
+
+    it("removes solvent and explicit-hydrogen fragments, keeping the fragment's stereo", () => {
+      const solvate = kept(cleanRow(row({ smiles: "C[C@H](F)CC.O.[H]Cl", peaks: [-172.1] })));
+      const alone = kept(cleanRow(row({ smiles: "C[C@H](F)CC", peaks: [-172.1] })));
+      expect(solvate.removedFragments).toBe(2);
+      expect(solvate.stereoIdcode).toBe(alone.stereoIdcode);
+      expect(solvate.stereoFreeIdcode).toBe(alone.stereoFreeIdcode);
+      const ez = kept(cleanRow(row({ smiles: "CO.F/C=C\\C" })));
+      expect(ez.stereoIdcode).toBe(kept(cleanRow(row({ smiles: "F/C=C\\C" }))).stereoIdcode);
+    });
+
+    it("judges symmetry and type on the fragment, not the salt", () => {
+      // A fluoride counterion would make a second fluorine fragment and drop; a chloride does not
+      // add fluorines, and the fragment keeps its own class and type.
+      const record = kept(cleanRow(row({ smiles: "Fc1ccc(cc1)[N+](C)(C)C.[Br-]", peaks: [-112.0] })));
+      expect(record.fluorineAtoms).toBe(1);
+      expect(record.fluorineType).toBe("aryl-F");
+      expect(cleanRow(row({ smiles: "C[N+](C)(C)C.[F-].CF" }))).toEqual({ drop: "fluorine-in-multiple-fragments" });
+      expect(kept(cleanRow(row({ smiles: "C[N+](C)(C)C.[F-]", peaks: [-120.0] }))).fluorineType).toBe("other");
+    });
   });
 
   it("drops with every reason, in protocol order", () => {
@@ -220,10 +280,14 @@ describe("cleanRow (§2.2–2.7)", () => {
     for (const [overrides, reason] of cases) {
       expect(cleanRow(row(overrides))).toEqual({ drop: reason });
     }
-    // symmetry-classes-failed and idcode-failed only guard OpenChemLib exceptions that no valid
+    // fragment-extraction-failed, symmetry-classes-failed and idcode-failed only guard OpenChemLib exceptions that no valid
     // SMILES is known to trigger; every other reason is reached above.
     const reached = new Set(cases.map(([, reason]) => reason));
-    expect(DROP_REASONS.filter((reason) => !reached.has(reason))).toEqual(["symmetry-classes-failed", "idcode-failed"]);
+    expect(DROP_REASONS.filter((reason) => !reached.has(reason))).toEqual([
+      "fragment-extraction-failed",
+      "symmetry-classes-failed",
+      "idcode-failed"
+    ]);
   });
 
   it("applies the structure rules before the peak rules", () => {

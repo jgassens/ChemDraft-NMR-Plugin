@@ -4,7 +4,8 @@
  *   node --import tsx scripts/f19/clean-nmrexp.ts <extracted.jsonl> <cleaned.jsonl> <report.json>
  *
  * Input: the JSONL written by scripts/f19/extract_nmrexp_19f.py. Output: one cleaned record per
- * kept row (JSONL) and a report of counts only. Nothing here prints structures, file names or
+ * kept row (JSONL; the molecule is the fluorine-bearing fragment only, identified by its stereo-free
+ * and stereo idcodes) and a report of counts only. Nothing here prints structures, file names or
  * shifts; the console gets counts only. No split is computed here.
  */
 import { createHash } from "node:crypto";
@@ -32,10 +33,12 @@ const inputSha256 = createHash("sha256").update(bytes).digest("hex");
 const dropsByReason = Object.fromEntries(DROP_REASONS.map((reason) => [reason, 0])) as Record<DropReason, number>;
 const fluorineTypeCounts = Object.fromEntries(FLUORINE_TYPES.map((type) => [type, 0])) as Record<FluorineType, number>;
 const sourceKeys = new Set<string>();
-const idcodes = new Set<string>();
+const stereoFreeIdcodes = new Set<string>();
+const stereoIdcodes = new Set<string>();
 const cleaned: string[] = [];
 let inputRows = 0;
 let cdcl3Rows = 0;
+let rowsWithFragmentsRemoved = 0;
 
 const lines = bytes.toString("utf8").split("\n");
 for (let index = 0; index < lines.length; index += 1) {
@@ -58,7 +61,9 @@ for (let index = 0; index < lines.length; index += 1) {
   const record: CleanedRecord = result;
   cleaned.push(JSON.stringify(record));
   sourceKeys.add(record.sourceKey);
-  idcodes.add(record.idcode);
+  stereoFreeIdcodes.add(record.stereoFreeIdcode);
+  stereoIdcodes.add(record.stereoIdcode);
+  if (record.removedFragments > 0) rowsWithFragmentsRemoved += 1;
   fluorineTypeCounts[record.fluorineType] += 1;
   if (typeof record.solvent === "string" && record.solvent.toLowerCase().includes("cdcl3")) cdcl3Rows += 1;
 }
@@ -73,12 +78,20 @@ const report = {
   droppedRows: inputRows - cleaned.length,
   dropsByReason,
   distinctSourceKeys: sourceKeys.size,
-  distinctIdcodes: idcodes.size,
+  distinctStereoFreeIdcodes: stereoFreeIdcodes.size,
+  distinctStereoIdcodes: stereoIdcodes.size,
+  keptRowsWithOtherFragmentsRemoved: rowsWithFragmentsRemoved,
   fluorineTypeCounts,
   cdcl3Rows,
   cdcl3Fraction: cleaned.length > 0 ? cdcl3Rows / cleaned.length : null
 };
 writeFileSync(reportOutput, `${JSON.stringify(report, null, 2)}\n`);
 console.log(
-  `inputRows=${inputRows} keptRows=${cleaned.length} distinctSourceKeys=${sourceKeys.size} distinctIdcodes=${idcodes.size}`
+  [
+    `inputRows=${inputRows}`,
+    `keptRows=${cleaned.length}`,
+    `distinctSourceKeys=${sourceKeys.size}`,
+    `distinctStereoFreeIdcodes=${stereoFreeIdcodes.size}`,
+    `distinctStereoIdcodes=${stereoIdcodes.size}`
+  ].join(" ")
 );

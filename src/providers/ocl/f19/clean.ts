@@ -24,12 +24,17 @@ export interface ExtractedRow {
 export interface CleanedRecord {
   row: number;
   sourceKey: string;
-  idcode: string;
+  /** §2.7 stereo-free idcode of the fluorine-bearing fragment: identity guards, HOSE-table collapse. */
+  stereoFreeIdcode: string;
+  /** §2.7 OpenChemLib's default idcode of that fragment (keeps R/S and E/Z): GNN observations. */
+  stereoIdcode: string;
   shift: number;
   solvent: string | null;
-  /** Number of fluorine atoms in the molecule (all in one symmetry class). */
+  /** Number of fluorine atoms in the fragment (all in one symmetry class). */
   fluorineAtoms: number;
   fluorineType: FluorineType;
+  /** Number of other fragments (counterions, solvent) removed by §2.2. */
+  removedFragments: number;
 }
 
 /** Fixed drop reasons, in the order the rules are applied. */
@@ -38,6 +43,8 @@ export const DROP_REASONS = [
   "smiles-unparseable",
   "no-fluorine",
   "fluorine-in-multiple-fragments",
+  // §2.2 (OpenChemLib could not remove the other fragments)
+  "fragment-extraction-failed",
   // §2.3 (symmetry classes could not be prepared, then more than one class)
   "symmetry-classes-failed",
   "multiple-fluorine-environments",
@@ -109,6 +116,40 @@ export function stereoFreeIdcode(molecule: OCL.Molecule): string {
   return new OCL.Canonizer(molecule, { neglectAnyStereoInformation: true }).getIDCode();
 }
 
+/** §2.7: OpenChemLib's default idcode, keeping R/S and E/Z. */
+export function stereoIdcode(molecule: OCL.Molecule): string {
+  return new OCL.Canonizer(molecule).getIDCode();
+}
+
+/**
+ * §2.2: remove, in place, every atom outside the fragment `fragment` (as numbered by
+ * `getFragmentNumbers(fragmentNo, false, false)`), explicit hydrogens included. Returns the number of
+ * other fragments removed.
+ */
+function keepOnlyFragment(molecule: OCL.Molecule, fragmentNo: readonly number[], fragment: number): number {
+  const others = new Set<number>();
+  const remove: number[] = [];
+  for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
+    if (fragmentNo[atom] !== fragment) {
+      remove.push(atom);
+      others.add(fragmentNo[atom]);
+    }
+  }
+  if (remove.length > 0) molecule.deleteAtoms(remove);
+  // Deletion leaves the helper arrays stale (atom counts included); re-materialize them as
+  // normalizeStructure does. This may reorder hydrogens, so atom indices are re-read afterwards.
+  molecule.ensureHelperArrays(OCL.Molecule.cHelperRings);
+  return others.size;
+}
+
+function fluorineAtoms(molecule: OCL.Molecule): number[] {
+  const fluorines: number[] = [];
+  for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
+    if (molecule.getAtomicNo(atom) === 9) fluorines.push(atom);
+  }
+  return fluorines;
+}
+
 /** §2.2–2.7 in protocol order. */
 export function cleanRow(row: ExtractedRow): CleanedRecord | { drop: DropReason } {
   // §2.2 parse through the plugin's structure path.
@@ -119,16 +160,27 @@ export function cleanRow(row: ExtractedRow): CleanedRecord | { drop: DropReason 
   } catch {
     return { drop: "smiles-unparseable" };
   }
-  const fluorines: number[] = [];
-  for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
-    if (molecule.getAtomicNo(atom) === 9) fluorines.push(atom);
-  }
-  if (fluorines.length === 0) return { drop: "no-fluorine" };
+  const allFluorines = fluorineAtoms(molecule);
+  if (allFluorines.length === 0) return { drop: "no-fluorine" };
   const fragmentNo = new Array<number>(molecule.getAllAtoms()).fill(-1);
   molecule.getFragmentNumbers(fragmentNo, false, false);
-  if (new Set(fluorines.map((atom) => fragmentNo[atom])).size > 1) {
+  const fluorineFragments = new Set(allFluorines.map((atom) => fragmentNo[atom]));
+  if (fluorineFragments.size > 1) {
     return { drop: "fluorine-in-multiple-fragments" };
   }
+
+  // §2.2 from here on the molecule is the fluorine-bearing fragment only: counterions and solvent
+  // are removed before symmetry classes, fluorine type and identity, so a salt and its fluorinated
+  // component are the same molecule.
+  let removedFragments: number;
+  let fluorines: number[];
+  try {
+    removedFragments = keepOnlyFragment(molecule, fragmentNo, [...fluorineFragments][0]);
+    fluorines = fluorineAtoms(molecule);
+  } catch {
+    return { drop: "fragment-extraction-failed" };
+  }
+  if (fluorines.length !== allFluorines.length) return { drop: "fragment-extraction-failed" };
 
   // §2.3 the production lookup's stereo-free constitutional classes: atoms of one class share a
   // representative.
@@ -153,22 +205,26 @@ export function cleanRow(row: ExtractedRow): CleanedRecord | { drop: DropReason 
   const key = sourceKey(row.filename);
 
   // §2.7 identity.
-  let idcode: string;
+  let stereoFree: string;
+  let stereo: string;
   try {
-    idcode = stereoFreeIdcode(molecule);
+    stereoFree = stereoFreeIdcode(molecule);
+    stereo = stereoIdcode(molecule);
   } catch {
     return { drop: "idcode-failed" };
   }
-  if (!idcode) return { drop: "idcode-failed" };
+  if (!stereoFree || !stereo) return { drop: "idcode-failed" };
 
   return {
     row: row.row,
     sourceKey: key,
-    idcode,
+    stereoFreeIdcode: stereoFree,
+    stereoIdcode: stereo,
     shift: peak.shift,
     solvent: row.solvent,
     fluorineAtoms: fluorines.length,
-    fluorineType: fluorineType(molecule, fluorines[0])
+    fluorineType: fluorineType(molecule, fluorines[0]),
+    removedFragments
   };
 }
 
