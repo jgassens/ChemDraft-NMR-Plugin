@@ -47,6 +47,25 @@
       ],
       "license": "nmrshiftdb2 Database License (ODbL-derived)",
       "noticeFile": "src/providers/ocl/NMRSHIFTDB2_LICENSE.md"
+    },
+    {
+      "name": "NMRexp-derived ¹⁹F GNN model weights, training-domain counts and HOSE shift statistics",
+      "attribution": "Wang, Jun-Jie and Zhu, Rong, NMRexp (Zenodo, doi:10.5281/zenodo.17296666), licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/); dataset paper: Wang, J.-J., Jin, Y., Zhi, C.-Y. et al., Scientific Data 12, 1954 (2025), doi:10.1038/s41597-025-06245-5. Changes were made: the ¹⁹F rows were filtered (single fluorine environment, single peak), deduplicated, cleaned by an outlier rule and transformed into aggregated HOSE shift statistics and GNN model weights by ChemDraft; no structures are included. Not endorsed by the dataset authors. NMRShiftDB2 was used only as the independent test gate; it is not a source of the ¹⁹F model or table.",
+      "url": "https://doi.org/10.5281/zenodo.17296666",
+      "citation": "Wang, J.-J., Jin, Y., Zhi, C.-Y. et al., Scientific Data 12, 1954 (2025), doi:10.1038/s41597-025-06245-5",
+      "authors": "Wang, Jun-Jie; Zhu, Rong",
+      "doi": "10.5281/zenodo.17296666",
+      "path": "src/providers/gnn/model-19F",
+      "files": [
+        "src/providers/gnn/model-19F/19F.fp16.onnx",
+        "src/providers/gnn/model-19F/domain.json",
+        "src/providers/gnn/model-19F/hose-table.json"
+      ],
+      "license": "CC-BY-4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "changes": "¹⁹F rows filtered (single fluorine environment, single peak), deduplicated, cleaned by the pre-registered outlier rule, and transformed into aggregated HOSE shift statistics and GNN model weights; no structures are included.",
+      "noticeFile": "src/providers/gnn/model-19F/NMREXP_LICENSE.md",
+      "note": "Trained and compiled under the pre-registered protocol docs/f19-benchmark.md (commit 7794cd9). NMRShiftDB2 was used only as the independent test gate; it is not a source of these files."
     }
   ],
   "description": "ChemDraft NMR shift predictor plugin: a bundled graph neural network trained on NMRShiftDB2 assignments predicts 1H/13C shifts, with HOSE-fragment statistics from NMRShiftDB2 as cross-check and fallback; 31P statistics from Ilm-NMR-P31 v3.0.",
