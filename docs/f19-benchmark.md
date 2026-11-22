@@ -299,3 +299,25 @@ figures kept.
   nothing is copied from it (only its citation is used). The Zenodo deposit is CC BY 4.0, with no
   non-commercial or no-derivatives term. If a later check finds one, the work stops and goes to
   the owner.
+
+## 10. Changes after the split
+
+### 2026-11-22: clarifications before opening
+
+The split was computed and the model was trained and selected on validation; neither the in-source
+test nor the gate had been opened. Writing the scoring code exposed three places where the text
+above admits more than one reading. Each is settled here, before opening, by the reading below. These
+clarify wording; they add no rule. If a reviewer judges any of them to change a rule rather than
+clarify it, the original text above governs and the scoring code follows it.
+
+1. **Bootstrap population (§7).** "The scored set" is the whole gate (every gate stereo idcode,
+   both strata) or the whole in-source test (every source key). Each is resampled as one population;
+   a stratum, a fluorine type and the eligible-type subset are slices of the same draws, and a
+   resample in which a slice has no errors is skipped for that slice only.
+2. **Band rounding (§5).** "Rounded up to the next 0.5 ppm" means the smallest multiple of 0.5 ppm
+   that is at least the P90; a P90 already on a multiple stays.
+3. **HOSE lookups for held-out observations (§5).** Validation, in-source test and gate observations
+   are looked up the way the shipped predictor looks up a drawn molecule: through the production
+   lookup on the observation's own (stereo) graph. Tables are compiled from stereo-free graphs (§4);
+   the number of held-out observations whose stereo and stereo-free environment codes differ is
+   reported.
