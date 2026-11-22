@@ -125,11 +125,12 @@ per-atom GNN is the main predictor and the plugin's HOSE lookup is its cross-che
 | HOSE table | Rows (after §3 guards and §4) | Used for |
 |---|---|---|
 | benchmark table | train | every validation and in-source-test prediction path: the band, the disagreement check, tiers and fallback |
-| gate table | train + validation + test | every gate prediction path, and the shipped fallback |
+| gate table | train + validation (never in-source test rows) | every gate prediction path, and the shipped fallback |
 
-Validation and test labels enter the gate table as table inputs only; the gate table and its
-diagnostics are never used for training, seed selection, the band or the in-source test.
-NMRShiftDB2 ¹⁹F data are never a table input or a training label.
+Validation labels enter the gate table as table inputs only. In-source test rows are never an
+input to any table or model, so nothing in the in-source test can influence which types are
+eligible; the gate table and its diagnostics are never used for training, seed selection, the
+band or the in-source test. NMRShiftDB2 ¹⁹F data are never a table input or a training label.
 
 **HOSE lookup statistic:** search spheres 4, 3, 2, 1 in that order; the prediction is the
 **median** of the deepest sphere with a surviving environment (after §4 pruning). Its tier is the
@@ -251,7 +252,10 @@ exclusion, before outlier filtering), scored on the same observations.
 ¹⁹F ships, for the eligible types only, if at least one type is eligible and rules 2 and 3 both
 pass; otherwise it does not ship in this version. Every coverage and error figure is reported
 twice and labeled: over all types ("before the type filter") and over eligible types ("shipped
-types"). Coverage is never a threshold. The multi-environment stratum's figures are labeled
+types"). In addition, for the gate and the in-source test, **shipped coverage** is reported:
+observations that receive a shipped prediction (single-environment molecule of an eligible type,
+given a shift) over all scored observations of that set, both strata and all types included.
+Coverage is never a threshold. The multi-environment stratum's figures are labeled
 "diagnostic: not shipped"; the shipped predictor's coverage of multi-environment molecules is
 zero in this version, and the stratum never changes a decision.
 
