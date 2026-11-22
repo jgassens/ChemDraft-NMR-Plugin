@@ -1,7 +1,13 @@
 import type { PluginCommandHandler } from "@chemdraft/plugin-api";
 
 import { predictSelectedStructure, type NmrCommandConfig, type NmrCommandServices } from "./application/predictSelectedStructure";
-import { nmrPredictCarbonCommandId, nmrPredictPhosphorusCommandId, nmrPredictProtonCommandId, nmrPredictorPanelId } from "./manifest";
+import {
+  nmrPredictCarbonCommandId,
+  nmrPredictFluorineCommandId,
+  nmrPredictPhosphorusCommandId,
+  nmrPredictProtonCommandId,
+  nmrPredictorPanelId
+} from "./manifest";
 
 export interface NmrPluginRegistration {
   commandHandlers: Record<string, PluginCommandHandler>;
@@ -37,7 +43,8 @@ export function createNmrRegistration(services: NmrCommandServices): NmrPluginRe
     commandHandlers: {
       [nmrPredictCarbonCommandId]: run({ nuclei: ["13C"] }),
       [nmrPredictProtonCommandId]: run({ nuclei: ["1H"], ignoreLabileHydrogens: true }),
-      [nmrPredictPhosphorusCommandId]: run({ nuclei: ["31P"] })
+      [nmrPredictPhosphorusCommandId]: run({ nuclei: ["31P"] }),
+      [nmrPredictFluorineCommandId]: run({ nuclei: ["19F"] })
     },
     onPanelClosed: (panelId) => {
       if (panelId === nmrPredictorPanelId) {

@@ -72,8 +72,8 @@ export function renderStickSpectrumSvg(result: NmrPredictionResult, options: Sti
     .join("");
 
   const sourceLabel = result.backend.method === "fixture-fragment" ? "synthetic fixture" : "predicted";
-  const isotopeLabel = { "1H": "¹H", "13C": "¹³C", "31P": "³¹P" }[nucleus];
-  const nucleusName = { "1H": "proton", "13C": "carbon-13", "31P": "phosphorus-31" }[nucleus];
+  const isotopeLabel = { "1H": "¹H", "13C": "¹³C", "31P": "³¹P", "19F": "¹⁹F" }[nucleus];
+  const nucleusName = { "1H": "proton", "13C": "carbon-13", "31P": "phosphorus-31", "19F": "fluorine-19" }[nucleus];
   const axisLabel = `${isotopeLabel} δ (ppm) — ${sourceLabel}`;
 
   return (
@@ -105,10 +105,15 @@ function escapeXml(value: string): string {
 }
 
 function domain(nucleus: NmrNucleus, shifts: readonly number[]): { min: number; max: number } {
-  if (nucleus === "31P" && shifts.length > 0) {
+  if ((nucleus === "31P" || nucleus === "19F") && shifts.length > 0) {
     return { min: Math.floor(Math.min(...shifts) - 5), max: Math.ceil(Math.max(...shifts) + 5) };
   }
-  const defaults = { "1H": { min: 0, max: 12 }, "13C": { min: 0, max: 220 }, "31P": { min: -10, max: 10 } }[nucleus];
+  const defaults = {
+    "1H": { min: 0, max: 12 },
+    "13C": { min: 0, max: 220 },
+    "31P": { min: -10, max: 10 },
+    "19F": { min: -200, max: 0 }
+  }[nucleus];
   if (shifts.length === 0) {
     return defaults;
   }

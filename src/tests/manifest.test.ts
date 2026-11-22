@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   nmrPredictCarbonCommandId,
+  nmrPredictFluorineCommandId,
   nmrPredictPhosphorusCommandId,
   nmrPredictProtonCommandId,
   nmrPredictorManifest,
@@ -23,9 +24,10 @@ describe("nmrPredictorManifest", () => {
     expect(parsed.contributes.commands.map((command) => command.id)).toEqual([
       nmrPredictCarbonCommandId,
       nmrPredictProtonCommandId,
-      nmrPredictPhosphorusCommandId
+      nmrPredictPhosphorusCommandId,
+      nmrPredictFluorineCommandId
     ]);
-    expect(parsed.contributes.menus).toHaveLength(3);
+    expect(parsed.contributes.menus).toHaveLength(4);
     expect(parsed.contributes.analyzers).toHaveLength(1);
     expect(parsed.contributes.panels[0]?.id).toBe(nmrPredictorPanelId);
   });
@@ -52,7 +54,8 @@ describe("nmrPredictorManifest", () => {
         commandHandlers: {
           [nmrPredictCarbonCommandId]: async () => undefined,
           [nmrPredictProtonCommandId]: async () => undefined,
-          [nmrPredictPhosphorusCommandId]: async () => undefined
+          [nmrPredictPhosphorusCommandId]: async () => undefined,
+          [nmrPredictFluorineCommandId]: async () => undefined
         }
       })
     ).not.toThrow();
@@ -60,7 +63,25 @@ describe("nmrPredictorManifest", () => {
     expect(host.listMenuContributions("analyze").map((entry) => entry.contribution.commandId)).toEqual([
       nmrPredictCarbonCommandId,
       nmrPredictProtonCommandId,
-      nmrPredictPhosphorusCommandId
+      nmrPredictPhosphorusCommandId,
+      nmrPredictFluorineCommandId
     ]);
+  });
+
+  it("names the ¹⁹F command CF3 only and credits NMRexp under CC BY 4.0 in the plugin description", () => {
+    const fluorine = nmrPredictorManifest.contributes.commands.find((command) => command.id === nmrPredictFluorineCommandId);
+    expect(fluorine?.title).toBe("Predict ¹⁹F NMR Shifts (CF3 only)");
+    expect(fluorine?.description).toContain("CF3 only");
+    expect(fluorine?.requiredPermissions).toEqual(["selection.read", "analysis.write"]);
+    const menu = nmrPredictorManifest.contributes.menus.find((entry) => entry.commandId === nmrPredictFluorineCommandId);
+    expect(menu?.title).toBe("Predict ¹⁹F NMR Shifts (CF3 only)");
+    const description = nmrPredictorManifest.description ?? "";
+    expect(description).toContain("¹⁹F shifts for CF3 groups only");
+    expect(description).toContain("NMRexp");
+    expect(description).toContain("10.5281/zenodo.17296666");
+    expect(description).toContain("CC BY 4.0");
+    // NMRShiftDB2 tested the ¹⁹F model; it is not named as its source.
+    expect(description).toContain("NMRShiftDB2 was used only to test it");
+    expect(description).not.toMatch(/\d\s*%/);
   });
 });

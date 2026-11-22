@@ -2,13 +2,14 @@
 
 Standalone repository for ChemDraft's first-party **NMR shift predictor** plugin.
 Select a structure and use the **Analyze** menu to see a predicted ¹³C, ¹H
-(experimental), or ³¹P stick spectrum and shift table. The host stores predictions
+(experimental), ³¹P, or ¹⁹F (CF3 only) stick spectrum and shift table. The host stores predictions
 and flags them as stale when the structure changes.
 
 ¹H and ¹³C shifts come from a bundled **graph neural network (GNN)**, with the HOSE
 lookup over NMRShiftDB2 statistics as cross-check and fallback; ³¹P shifts come
-from the HOSE lookup alone. Every shift is labeled **GNN prediction** or **HOSE
-lookup**. See [GNN shift predictor](docs/gnn-model.md).
+from the HOSE lookup alone. ¹⁹F shifts are given for **CF3 only**: a GNN trained on
+NMRexp, with an NMRexp HOSE table as cross-check and fallback. Every shift is labeled
+**GNN prediction** or **HOSE lookup**. See [GNN shift predictor](docs/gnn-model.md).
 
 This repo builds the **installable plugin package** — the `nmr-predictor-<version>.zip`
 a ChemDraft host downloads and installs (ADR-0029/M35). It compiles only against
@@ -29,7 +30,7 @@ In the ChemDraft desktop app:
    it loads the GNN model files bundled in the package. It downloads nothing and
    needs no network access.
 4. Select a structure and use the **Analyze** menu to predict ¹³C, ¹H
-   (experimental), or ³¹P shifts.
+   (experimental), ³¹P, or ¹⁹F (CF3 only) shifts.
 
 Each release also includes a `.zip.sha256` sidecar for verifying the downloaded
 package. The plugin requires ChemDraft 1.2 or later, with plugin API
@@ -217,6 +218,30 @@ split, seed 1, 20 per 1,000 buckets), the median lookup had the following result
 
 See the [benchmark partition and per-tier results](docs/charge-aware-hose.md).
 
+## ¹⁹F prediction (CF3 only)
+
+Choose **Analyze → Predict ¹⁹F NMR Shifts (CF3 only)**. This version predicts ¹⁹F
+only when all of the molecule's fluorine atoms form one fluorine environment of type
+CF3. Every other fluorinated molecule gets no ¹⁹F shift and a plain warning that names
+the reason. That covers a molecule with more than one fluorine environment, and any
+CF2, aryl-F, hetero-F, acyl-F, vinyl-F, alkyl-F or other fluorine. A bundled GNN
+trained on NMRexp ¹⁹F data predicts the CF3 shift. A HOSE lookup over NMRexp
+statistics is its cross-check and its fallback when the GNN declines or the model is
+unavailable. Each shift is labeled **GNN prediction** or **HOSE lookup** and carries a
+tier (agreement band 5.5 ppm). The model loads only for a ¹⁹F prediction and must
+match its frozen SHA-256.
+
+Measured on the shipped predictor, CF3 only:
+
+- NMRShiftDB2 single-environment CF3 molecules (independent gate, first opening):
+  MAE 3.47 ppm [95% interval 2.25, 5.02], 157 molecules
+- held-out NMRexp source files (10%, molecule-deduplicated), CF3: MAE 3.53 ppm
+  [2.10, 5.23], 6,903 molecules
+
+NMRShiftDB2 served only as that test gate; the model and table come from NMRexp
+(CC BY 4.0). [¹⁹F method, rules and verification](docs/gnn-model.md) ·
+[Pre-registered protocol](docs/f19-benchmark.md)
+
 ## ³¹P prediction
 
 Select a phosphorus-containing structure and choose **Analyze → Predict ³¹P NMR
@@ -246,7 +271,7 @@ reports chemical shifts and leaves solvent effects and ³¹P splitting unmodeled
 
 ## ⚠️ Data provenance
 
-- The GNN model weights (`src/providers/gnn/model/*.onnx`) and their training-domain
+- The ¹H/¹³C GNN model weights (`src/providers/gnn/model/*.onnx`) and their training-domain
   counts (`src/providers/gnn/model/domain.json`) were fitted to NMRShiftDB2
   assignments. They are NMRShiftDB2-derived data under the **nmrshiftdb2 Database
   License** (ODbL-derived), not MIT — see `src/providers/ocl/NMRSHIFTDB2_LICENSE.md`.
@@ -263,6 +288,15 @@ reports chemical shifts and leaves solvent effects and ³¹P splitting unmodeled
   copy used to build the table is **BSD-3-Clause**, copyright (c) 2026 Robert Geitner;
   that credit is kept. Redistributed with the author's permission (owner, 2026-11-20).
   [Dataset paper](https://doi.org/10.1186/s13321-023-00792-y) · [Attribution and license text](src/providers/ocl/ILM_NMR_P31_LICENSE.md)
+- The ¹⁹F model weights, training-domain counts and HOSE table
+  (`src/providers/gnn/model-19F/`) are derived from NMRexp (Wang, Jun-Jie and Zhu, Rong,
+  [10.5281/zenodo.17296666](https://doi.org/10.5281/zenodo.17296666); Wang, J.-J., Jin, Y.,
+  Zhi, C.-Y. et al., Scientific Data 12, 1954 (2025)), under
+  [**CC BY 4.0**](https://creativecommons.org/licenses/by/4.0/). The rows were filtered,
+  deduplicated, outlier-cleaned and transformed into HOSE statistics and GNN weights; no
+  structures are included. NMRShiftDB2 was used only as the independent test gate and
+  is not a source of these files.
+  [Attribution and license text](src/providers/gnn/model-19F/NMREXP_LICENSE.md)
 - The fixture provider's values are **synthetic**, labeled as such everywhere.
 - Coverage is intentionally narrow. Applicable coarse estimates are marked partial
   and include per-resonance `source: "rule-estimate"`, estimator ID, version, and
@@ -285,12 +319,13 @@ See `THIRD_PARTY_NOTICES.md` for the full third-party attribution.
 
 ```
 src/
-├── manifest.ts        contributions (¹³C, ¹H experimental, and ³¹P commands, menu, panel, analyzer)
+├── manifest.ts        contributions (¹³C, ¹H experimental, ³¹P and ¹⁹F CF3-only commands, menu, panel, analyzer)
 ├── register.ts        command handlers + onPanelClosed lifecycle
 ├── workerEntry.ts     the worker entry the release bundles into entry.js
 ├── domain/            serializable contracts, errors, warnings, schemas
 ├── application/       normalization, selection mapping, status, the command
-├── providers/         gnn/ (default ¹H/¹³C GNN, featurizer, ONNX runtime, decline/tier rules),
+├── providers/         gnn/ (default ¹H/¹³C GNN, featurizer, ONNX runtime, decline/tier rules;
+│                      f19/ and model-19F/: the ¹⁹F CF3-only GNN and its NMRexp HOSE table),
 │                      ocl/ (HOSE lookup: NMRShiftDB2 and Ilm-NMR-P31), fixture/ (synthetic)
 ├── worker/            protocol, core handler, entry, client
 └── report/            declarative panel composition + stick-spectrum SVG

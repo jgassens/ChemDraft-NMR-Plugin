@@ -29,7 +29,11 @@ export const NmrWarningCodes = {
   /** The GNN declined atoms under ABSTENTION.md section 1; the message names the rules. */
   GnnDeclined: "NMR_GNN_DECLINED",
   /** |GNN − HOSE lookup| exceeds the agreement band (ABSTENTION.md section 4). */
-  ModelLookupDisagreement: "NMR_MODEL_LOOKUP_DISAGREEMENT"
+  ModelLookupDisagreement: "NMR_MODEL_LOOKUP_DISAGREEMENT",
+  /** ¹⁹F declined: the molecule has more than one fluorine environment (docs/f19-benchmark.md §6). */
+  FluorineMultipleEnvironments: "NMR_F19_MULTIPLE_ENVIRONMENTS",
+  /** ¹⁹F declined: the single fluorine environment is not a CF3 group (§6, §7: CF3 only ships). */
+  FluorineTypeNotPredicted: "NMR_F19_TYPE_NOT_PREDICTED"
 } as const;
 
 export type NmrWarningCode = (typeof NmrWarningCodes)[keyof typeof NmrWarningCodes];

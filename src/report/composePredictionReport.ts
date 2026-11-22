@@ -7,10 +7,25 @@ import type {
 } from "@chemdraft/plugin-api";
 
 import { isRuleEstimated, PROTON_HIGH_DISPERSION_CROSS_CHECK_PPM } from "../domain/contracts";
-import type { NmrNucleus, NmrPredictionResult, NmrReferenceDatabase, NmrResonance, NmrStructureAtom } from "../domain/contracts";
+import type {
+  NmrNucleus,
+  NmrPredictionModel,
+  NmrPredictionResult,
+  NmrReferenceDatabase,
+  NmrResonance,
+  NmrStructureAtom
+} from "../domain/contracts";
 import type { CommandError } from "../application/mapSelection";
 import { MEASURED_ACCURACY, PHOSPHORUS_MEASURED_ACCURACY } from "../providers/ocl/measuredAccuracy";
-import { GNN_AGREEMENT_BANDS, GNN_MEASURED_ACCURACY, GNN_MODEL_RELEASE } from "../providers/gnn/modelRelease";
+import {
+  F19_AGREEMENT_BAND_PPM,
+  F19_HOSE_TABLE,
+  F19_MEASURED_ACCURACY,
+  F19_MODEL_RELEASE,
+  GNN_AGREEMENT_BANDS,
+  GNN_MEASURED_ACCURACY,
+  GNN_MODEL_RELEASE
+} from "../providers/gnn/modelRelease";
 import { DEUTERIUM_PROTON_GYROMAGNETIC_RATIO } from "../domain/firstOrderCoupling";
 import { NmrWarningCodes } from "../domain/warnings";
 import { deuteriumMultipletComponents, hasDeuteriumCoupling } from "./deuteriumMultiplet";
@@ -36,12 +51,23 @@ const GNN_NOTE =
   "medium, low) compares the GNN with the HOSE lookup for the same atoms and states how far the atom lies inside the " +
   "training data; tiers are names, not probabilities. Shifts labeled HOSE lookup are reference statistics shown where " +
   "the GNN declined or was unavailable.";
+/** ¹⁹F scope, stated wherever a ¹⁹F result is shown (docs/f19-benchmark.md §6). */
+const F19_SCOPE =
+  "¹⁹F prediction is CF3 only in this version: it covers molecules whose fluorine atoms form one environment of type CF3. " +
+  "Every other fluorine type, and every molecule with more than one fluorine environment, gets no ¹⁹F shift.";
+const F19_NOTE =
+  `${F19_SCOPE} Shifts labeled GNN prediction come from a graph neural network trained on NMRexp ¹⁹F data (CC BY 4.0), ` +
+  "run locally from the model file bundled with this plugin. Its tier (high, medium, low) compares the GNN with the HOSE " +
+  `lookup for the same atoms within the ${F19_AGREEMENT_BAND_PPM} ppm agreement band and states how far the atoms lie inside ` +
+  "the training data; tiers are names, not probabilities. Shifts labeled HOSE lookup are NMRexp-derived reference statistics " +
+  "shown where the GNN declined or was unavailable.";
+const F19_NO_RESULT_NOTE = `No ¹⁹F shift is shown. ${F19_SCOPE} See the notices.`;
 const OTHER_METHOD_NOTE =
   "Method-derived predicted shifts from the reported backend. They are predictions, not experimental " +
   "measurements; consult the engine provenance and notices for method-specific limits.";
 
 function nucleusLabel(nucleus: NmrNucleus): string {
-  return { "1H": "¹H", "13C": "¹³C", "31P": "³¹P" }[nucleus];
+  return { "1H": "¹H", "13C": "¹³C", "31P": "³¹P", "19F": "¹⁹F" }[nucleus];
 }
 
 function nucleiLabel(nuclei: readonly NmrNucleus[]): string {
@@ -108,12 +134,17 @@ export function composePredictionReport(
 
   if (result.resonances.length > 0) {
     sections.push(...estimateProvenanceSections(result));
-    const phosphorus = result.resonances.filter((resonance) => resonance.nucleus === "31P");
-    if (phosphorus.length > 0 && phosphorus.length < result.resonances.length) {
-      const other = { ...result, resonances: result.resonances.filter((resonance) => resonance.nucleus !== "31P") };
-      const phosphorusOnly = { ...result, resonances: phosphorus };
-      sections.push(linkedFigureSection(other, resultMethodSummary(other)));
-      sections.push(linkedFigureSection(phosphorusOnly, resultMethodSummary(phosphorusOnly)));
+    // ³¹P and ¹⁹F get spectra of their own when they share a result with other nuclei.
+    const figures = [
+      result.resonances.filter((resonance) => resonance.nucleus !== "31P" && resonance.nucleus !== "19F"),
+      result.resonances.filter((resonance) => resonance.nucleus === "31P"),
+      result.resonances.filter((resonance) => resonance.nucleus === "19F")
+    ].filter((resonances) => resonances.length > 0);
+    if (figures.length > 1) {
+      for (const resonances of figures) {
+        const part = { ...result, resonances };
+        sections.push(linkedFigureSection(part, resultMethodSummary(part)));
+      }
     } else {
       sections.push(linkedFigureSection(result, methods));
     }
@@ -183,8 +214,33 @@ function resultMethodSummary(result: NmrPredictionResult): ResultMethodSummary {
 }
 
 function resultDisclaimer(result: NmrPredictionResult, methods: ResultMethodSummary): string {
+  if (involvesFluorine(result)) {
+    // ¹⁹F has its own model, data and scope; the other nuclei keep their own note.
+    const fluorine = result.resonances.filter((resonance) => resonance.nucleus === "19F");
+    const rest = { ...result, resonances: result.resonances.filter((resonance) => resonance.nucleus !== "19F") };
+    const fluorineNote = fluorine.length > 0 ? F19_NOTE : F19_NO_RESULT_NOTE;
+    if (rest.resonances.length === 0) return fluorineNote;
+    return `${nonFluorineDisclaimer(rest, resultMethodSummary(rest))} ${fluorineNote}`;
+  }
+  return nonFluorineDisclaimer(result, methods);
+}
+
+function nonFluorineDisclaimer(result: NmrPredictionResult, methods: ResultMethodSummary): string {
   const note = hoseDisclaimer(result, methods);
   return methods.hasGnn ? `${GNN_NOTE} ${note}` : note;
+}
+
+/** Whether ¹⁹F was part of this result: a ¹⁹F shift, the ¹⁹F table or model, or a ¹⁹F notice. */
+function involvesFluorine(result: NmrPredictionResult): boolean {
+  const { backend } = result;
+  return (
+    result.resonances.some((resonance) => resonance.nucleus === "19F") ||
+    backend.fluorineDatabase !== undefined ||
+    backend.fluorineModel !== undefined ||
+    backend.dataVersion === F19_HOSE_TABLE.name ||
+    backend.model?.id === F19_MODEL_RELEASE.id ||
+    result.warnings.some((warning) => warning.details?.nucleus === "19F")
+  );
 }
 
 function hoseDisclaimer(result: NmrPredictionResult, methods: ResultMethodSummary): string {
@@ -293,7 +349,7 @@ function linkedFigureSection(result: NmrPredictionResult, methods: ResultMethodS
 
   const section: PluginLinkedFigureSection = {
     kind: "linkedFigure",
-    title: `Predicted ${nucleusLabel(nucleus)} NMR`,
+    title: `Predicted ${nucleusLabel(nucleus)} NMR${nucleus === "19F" ? " (CF3 only)" : ""}`,
     caption: figureCaption(methods, nucleus) + (result.resonances.some(hasDeuteriumCoupling)
       ? " H–D couplings are typical first-order estimates; H–D multiplets use spin-1 intensities and follow the selected spectrometer field (see H–D coupling legend)."
       : ""),
@@ -316,7 +372,7 @@ function linkedFigureSection(result: NmrPredictionResult, methods: ResultMethodS
     }
   };
 
-  if ((methods.hasHose || methods.hasGnn) && nucleus !== "31P") {
+  if ((methods.hasHose || methods.hasGnn) && nucleus !== "31P" && nucleus !== "19F") {
     // Measured 106/196 CDCl₃ in the NMReDATA sample (then D₂O, DMSO-d₆, …): predominant, not uniform.
     // Only stated for measured-data results — the synthetic fixture has no solvent context.
     section.spectrum.solvent = "CDCl₃ (predominant reference solvent; mixed corpus)";
@@ -370,7 +426,11 @@ export function depictionAtomLabel(atom: NmrStructureAtom): string | undefined {
 
 function figureCaption(methods: ResultMethodSummary, nucleus: NmrNucleus): string {
   const interaction =
-    (nucleus === "31P" ? "Peaks identify the matched phosphorus atoms. " : "¹H–¹H couplings are typical first-order estimates. ") +
+    (nucleus === "31P"
+      ? "Peaks identify the matched phosphorus atoms. "
+      : nucleus === "19F"
+      ? "¹⁹F is CF3 only in this version; the peak identifies the CF3 fluorine atoms, and couplings are not shown. "
+      : "¹H–¹H couplings are typical first-order estimates. ") +
     "Peak height represents predicted equivalent nuclei, not experimental integration. " +
     "Scroll to zoom, drag to pan; hover a peak to highlight its atoms.";
   if (methods.fixture) return `Synthetic fixture spectrum. ${interaction}`;
@@ -394,7 +454,7 @@ function figureCaption(methods: ResultMethodSummary, nucleus: NmrNucleus): strin
  */
 function spectrumDomain(nucleus: NmrNucleus, shifts: readonly number[]): { min: number; max: number } {
   if (shifts.length === 0) {
-    return { "1H": { min: 0, max: 12 }, "13C": { min: 0, max: 220 }, "31P": { min: -10, max: 10 } }[nucleus];
+    return { "1H": { min: 0, max: 12 }, "13C": { min: 0, max: 220 }, "31P": { min: -10, max: 10 }, "19F": { min: -200, max: 0 } }[nucleus];
   }
   const buffer = nucleus === "1H" ? 1 : 10;
   const snap = nucleus === "1H" ? 0.5 : 5;
@@ -531,11 +591,57 @@ function confidenceCell(resonance: NmrResonance): string {
   return `${base}${declined}`;
 }
 
-/** The GNN model behind the result: identity, training data and its license, the tier rules, and the
- *  measured test-set error, always next to the partition it was measured on (ABSTENTION.md section 5). */
+/** The GNN models behind the result: the ¹H/¹³C model and, separately, the ¹⁹F model. */
 function modelSections(result: NmrPredictionResult): PluginPanelSection[] {
-  const model = result.backend.model;
-  if (!model) return [];
+  const { model, fluorineModel } = result.backend;
+  return [model, fluorineModel].flatMap((entry) => {
+    if (!entry) return [];
+    return entry.id === F19_MODEL_RELEASE.id ? fluorineModelSections(entry, result) : gnnModelSections(entry);
+  });
+}
+
+/**
+ * The ¹⁹F model: identity, scope (CF3 only), training data and its license, the tier rules, and the
+ * measured figures of the combined predictor next to their partitions. The figures describe exactly
+ * this model with exactly the shipped table, so they are shown only when the result names this model
+ * release and its ¹⁹F table carries the frozen checksum.
+ */
+function fluorineModelSections(model: NmrPredictionModel, result: NmrPredictionResult): PluginPanelSection[] {
+  const rows = [
+    { label: "Model", value: `${model.id} ${model.version} (graph neural network, ONNX)` },
+    { label: "Scope", value: "CF3 only: molecules with one fluorine environment of type CF3" },
+    { label: "Training data", value: model.trainingData },
+    { label: "Data license", value: model.dataLicense }
+  ];
+  const table = result.backend.fluorineDatabase ?? result.backend;
+  if (
+    model.version === F19_MODEL_RELEASE.version &&
+    table.dataVersion === F19_HOSE_TABLE.name &&
+    table.dataChecksum === F19_HOSE_TABLE.inputSha256
+  ) {
+    rows.push(
+      { label: "Measured MAE (¹⁹F, CF3 only, independent gate)", value: F19_MEASURED_ACCURACY.gate },
+      { label: "Measured MAE (¹⁹F, CF3 only, NMRexp check)", value: F19_MEASURED_ACCURACY.inSourceTest }
+    );
+  }
+  return [
+    { kind: "keyValue", title: "¹⁹F GNN model (CF3 only)", rows },
+    {
+      kind: "text",
+      title: "¹⁹F GNN tiers",
+      body:
+        `high: a HOSE match at sphere 3 or deeper agrees with the GNN within the agreement band (¹⁹F ${F19_AGREEMENT_BAND_PPM} ppm). ` +
+        "medium: a sphere 1–2 HOSE match agrees within the band, or there is no HOSE match and the atoms and their neighbors are well represented in the training data. " +
+        "low: the GNN and the HOSE lookup disagree beyond the band (both values are shown, never averaged), or the atoms are in the training domain only by the minimum counts. " +
+        "Where the GNN declines (rare element, charge or radical state, isotope label, size, or an unsupported structure), the HOSE lookup value is shown instead with its own tier; with no HOSE value, no shift is shown. " +
+        "These figures and tiers apply to CF3 groups only."
+    }
+  ];
+}
+
+/** The ¹H/¹³C GNN model: identity, training data and its license, the tier rules, and the measured
+ *  test-set error, always next to the partition it was measured on (ABSTENTION.md section 5). */
+function gnnModelSections(model: NmrPredictionModel): PluginPanelSection[] {
   const rows = [
     { label: "Model", value: `${model.id} ${model.version} (graph neural network, ONNX)` },
     { label: "Training data", value: model.trainingData },
@@ -571,13 +677,18 @@ function modelSections(result: NmrPredictionResult): PluginPanelSection[] {
  *  carries it (the OCL-native predictor does; the fixture does not). */
 function databaseSection(result: NmrPredictionResult): PluginPanelSection[] {
   const { backend } = result;
-  const { phosphorusDatabase } = backend;
+  const { phosphorusDatabase, fluorineDatabase } = backend;
   const nuclei = distinctNuclei(result);
   const sections = referenceDatabaseSections(
-    backend, backend.id, phosphorusDatabase ? nuclei.filter((nucleus) => nucleus !== "31P") : nuclei
+    backend,
+    backend.id,
+    nuclei.filter((nucleus) => !(phosphorusDatabase && nucleus === "31P") && !(fluorineDatabase && nucleus === "19F"))
   );
   if (phosphorusDatabase) {
     sections.push(...referenceDatabaseSections(phosphorusDatabase, backend.id, nuclei.filter((nucleus) => nucleus === "31P")));
+  }
+  if (fluorineDatabase) {
+    sections.push(...referenceDatabaseSections(fluorineDatabase, backend.id, nuclei.filter((nucleus) => nucleus === "19F")));
   }
   return sections;
 }

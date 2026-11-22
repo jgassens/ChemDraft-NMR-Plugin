@@ -1,11 +1,14 @@
 # Data license integration
 
-Root `package.json` declares three bundled data assets under `dataLicenses`.
+Root `package.json` declares four bundled data assets under `dataLicenses`.
 The NMRShiftDB2-derived ¹H/¹³C shift statistics and the NMRShiftDB2-derived GNN
 model weights (with their training-domain counts) use the **nmrshiftdb2 Database
 License (ODbL-derived)**. The Ilm-NMR-P31-derived ³¹P shift statistics use
-**BSD-3-Clause**. The plugin code uses MIT.
-[NMRShiftDB2 notice](../src/providers/ocl/NMRSHIFTDB2_LICENSE.md) · [Ilm-NMR-P31 license](../src/providers/ocl/ILM_NMR_P31_LICENSE.md)
+**BSD-3-Clause**. The NMRexp-derived ¹⁹F model weights, training-domain counts and
+HOSE table (`src/providers/gnn/model-19F/`) use **CC BY 4.0**; their entry is
+`F19_DATA_LICENSE_ENTRY` in `src/providers/gnn/modelRelease.ts`, and the test requires
+`package.json` to carry it verbatim. The plugin code uses MIT.
+[NMRShiftDB2 notice](../src/providers/ocl/NMRSHIFTDB2_LICENSE.md) · [Ilm-NMR-P31 license](../src/providers/ocl/ILM_NMR_P31_LICENSE.md) · [NMRexp ¹⁹F notice](../src/providers/gnn/model-19F/NMREXP_LICENSE.md)
 
 The host's `tools/plugin-extract/gates.ts` reads `package.json` and validates
 `dataLicenses`: each dataset requires non-empty `name` and `license` fields,
@@ -31,9 +34,11 @@ staged package. It recreates the ZIP and SHA-256 sidecar after those additions.
 Missing notices fail packaging and remove the ZIP and sidecar.
 
 Vite compiles both databases and the GNN training-domain counts into the
-predictor's JavaScript chunks, and emits the two GNN model files (`1H.fp16-*.onnx`,
-`13C.fp16-*.onnx`) as package files. Each `path` identifies the source artifact; the
-model entry lists its `files`. Both notice files keep their source paths in the ZIP.
+predictor's JavaScript chunks, and emits the GNN model files (`1H.fp16-*.onnx`,
+`13C.fp16-*.onnx`, `19F.fp16-*.onnx`) as package files. The ¹⁹F table and training
+domain are a separate chunk, loaded only for a ¹⁹F prediction. Each `path` identifies
+the source artifact; the model entries list their `files`. Every notice file keeps its
+source path in the ZIP.
 
 ## Verification
 

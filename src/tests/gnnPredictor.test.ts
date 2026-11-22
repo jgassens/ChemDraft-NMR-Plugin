@@ -13,7 +13,7 @@ import { NmrPredictionResultSchema } from "../domain/schemas";
 import { nmrWarning, NmrWarningCodes, type NmrPredictionWarning } from "../domain/warnings";
 import type { GnnMoleculeFeatures } from "../providers/gnn/featurize";
 import { GnnShiftPredictor, MODEL_LOOKUP_DISAGREEMENT_PHRASE } from "../providers/gnn/GnnShiftPredictor";
-import { GNN_AGREEMENT_BANDS, type GnnNucleus } from "../providers/gnn/modelRelease";
+import { GNN_AGREEMENT_BANDS, type GnnModelKey } from "../providers/gnn/modelRelease";
 import { GnnModelRuntime, type GnnModelInput, type GnnModelProvider } from "../providers/gnn/runtime";
 import { GNN_TRAINING_DOMAIN } from "../providers/gnn/trainingDomain";
 import type { GnnTrainingDomain } from "../providers/gnn/domainRules";
@@ -45,9 +45,9 @@ function fixtureMolfile(name: string, nuclei: NmrNucleus[] = ["13C"]): NmrPredic
 }
 
 /** A model whose per-atom output is chosen by the test: `values[atom]` at that atom's node. */
-function fakeModels(values: Partial<Record<GnnNucleus, Record<number, number>>> = {}) {
-  const loads: GnnNucleus[] = [];
-  const runs: { nucleus: GnnNucleus; input: GnnModelInput }[] = [];
+function fakeModels(values: Partial<Record<GnnModelKey, Record<number, number>>> = {}) {
+  const loads: GnnModelKey[] = [];
+  const runs: { nucleus: GnnModelKey; input: GnnModelInput }[] = [];
   const provider: GnnModelProvider = {
     load: async (nucleus) => {
       loads.push(nucleus);
@@ -500,6 +500,19 @@ describe("GnnShiftPredictor lazy loading", () => {
     handle({ type: "predict", requestId: "c13-again", request: smiles("Cc1ccccc1") });
     await settled("c13-again");
     expect(fetched).toEqual(["13C.fp16.onnx"]);
+
+    // A CF3 molecule through ¹³C, ¹H and ³¹P never fetches the ¹⁹F model. (One request at a time: a
+    // new request supersedes the one in flight.)
+    for (const [id, request] of [
+      ["cf3-c13", smiles("FC(F)(F)c1ccccc1")],
+      ["cf3-h1", smiles("FC(F)(F)c1ccccc1", ["1H"])],
+      ["cf3-p31", smiles("FC(F)(F)c1ccc(P(C)C)cc1", ["31P"])]
+    ] as const) {
+      handle({ type: "predict", requestId: id, request });
+      expect((await settled(id))?.type).toBe("result");
+    }
+    expect(fetched).toEqual(["13C.fp16.onnx", "1H.fp16.onnx"]);
+    expect(runtime.requested).not.toContain("19F");
   }, 60_000);
 });
 

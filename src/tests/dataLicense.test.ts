@@ -8,6 +8,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import packageJson from "../../package.json" with { type: "json" };
 import { addPackageNotices } from "../../scripts/package-notices";
+import { nmrPredictorManifest } from "../manifest";
+import { F19_DATA_CREDIT, F19_DATA_FILES, F19_DATA_LICENSE_ENTRY, F19_NOTICE_FILE } from "../providers/gnn/modelRelease";
 import { describePackageArtifact } from "./packageArtifact";
 
 const pluginRoot = fileURLToPath(new URL("../../", import.meta.url));
@@ -39,10 +41,70 @@ function temporaryPackage() {
 function expectPackagedNotices(zipPath: string): void {
   const unpack = (file: string) => execFileSync("unzip", ["-p", zipPath, file], { encoding: "utf8" });
   expect(JSON.parse(unpack("package.json")).dataLicenses).toEqual(packageJson.dataLicenses);
-  for (const file of [noticeFile, phosphorusNoticeFile, "THIRD_PARTY_NOTICES.md"]) {
+  for (const file of [noticeFile, phosphorusNoticeFile, F19_NOTICE_FILE, "THIRD_PARTY_NOTICES.md"]) {
     expect(unpack(file)).toBe(readFileSync(join(pluginRoot, file), "utf8"));
   }
 }
+
+describe("NMRexp ¹⁹F credit and license (docs/f19-benchmark.md §9)", () => {
+  it("declares the ¹⁹F model, domain and table in package.json dataLicenses under CC BY 4.0", () => {
+    // Needs the package.json entry: `F19_DATA_LICENSE_ENTRY`, verbatim.
+    const entry = (packageJson.dataLicenses as { path?: string }[]).find((item) => item.path === F19_DATA_LICENSE_ENTRY.path);
+    expect(entry).toEqual(F19_DATA_LICENSE_ENTRY);
+  });
+
+  it("carries the §9 credit: creators, sources, license name and URI, and the changes", () => {
+    for (const text of [F19_DATA_CREDIT, F19_DATA_LICENSE_ENTRY.attribution]) {
+      expect(text).toContain("Wang, Jun-Jie and Zhu, Rong");
+      expect(text).toContain("NMRexp");
+      expect(text).toContain("10.5281/zenodo.17296666");
+      expect(text).toContain("Scientific Data 12, 1954 (2025)");
+      expect(text).toContain("10.1038/s41597-025-06245-5");
+      expect(text).toContain("CC BY 4.0");
+      expect(text).toContain("https://creativecommons.org/licenses/by/4.0/");
+      expect(text).toContain("single fluorine environment, single peak");
+      expect(text).toContain("no structures are included");
+      expect(text).toContain("NMRShiftDB2 was used only as the independent test gate");
+    }
+    expect(F19_DATA_LICENSE_ENTRY.license).toBe("CC-BY-4.0");
+    expect(F19_DATA_LICENSE_ENTRY.licenseUrl).toBe("https://creativecommons.org/licenses/by/4.0/");
+    expect(new URL(F19_DATA_LICENSE_ENTRY.url).protocol).toBe("https:");
+    expect(F19_DATA_LICENSE_ENTRY.files).toEqual([...F19_DATA_FILES]);
+    for (const file of [...F19_DATA_FILES, F19_NOTICE_FILE]) expect(existsSync(join(pluginRoot, file)), file).toBe(true);
+    // The ¹⁹F files sit outside the NMRShiftDB2 model directory, so no other entry's path covers them.
+    for (const file of F19_DATA_FILES) expect(file.startsWith(`${modelPath}/`)).toBe(false);
+  });
+
+  it("ships a notice file and a THIRD_PARTY_NOTICES paragraph that credit NMRexp and name NMRShiftDB2 only as the gate", () => {
+    const notice = readFileSync(join(pluginRoot, F19_NOTICE_FILE), "utf8");
+    for (const text of [
+      "Wang, Jun-Jie and Zhu, Rong",
+      "10.5281/zenodo.17296666",
+      "10.1038/s41597-025-06245-5",
+      "https://creativecommons.org/licenses/by/4.0/",
+      "Changes were made",
+      "single fluorine environment",
+      ...F19_DATA_FILES
+    ]) {
+      expect(notice).toContain(text);
+    }
+    expect(notice).toContain("used only as the independent test gate");
+    expect(notice).toContain("They are not a source of the ¹⁹F model");
+    const thirdParty = readFileSync(join(pluginRoot, "THIRD_PARTY_NOTICES.md"), "utf8");
+    for (const text of ["NMRexp", "Wang, Jun-Jie and Zhu, Rong", "10.5281/zenodo.17296666", "CC BY 4.0", F19_NOTICE_FILE, ...F19_DATA_FILES]) {
+      expect(thirdParty).toContain(text);
+    }
+    expect(thirdParty).toContain("NMRShiftDB2 ¹⁹F assignments were used only as\n  the independent test gate");
+    // The NMRShiftDB2 notice is not stretched to cover the ¹⁹F files.
+    const nmrshiftdb2 = readFileSync(join(pluginRoot, noticeFile), "utf8");
+    for (const file of F19_DATA_FILES) expect(nmrshiftdb2).not.toContain(file);
+  });
+
+  it("credits NMRexp in the plugin's About text", () => {
+    expect(nmrPredictorManifest.description).toContain("NMRexp");
+    expect(nmrPredictorManifest.description).toContain("CC BY 4.0");
+  });
+});
 
 describe("bundled database licenses", () => {
   it("declares every bundled data asset in package metadata separately from MIT code", () => {
@@ -81,7 +143,8 @@ describe("bundled database licenses", () => {
         files: modelFiles,
         license: "nmrshiftdb2 Database License (ODbL-derived)",
         noticeFile
-      }
+      },
+      (({ attribution: _attribution, url: _url, ...rest }) => rest)(F19_DATA_LICENSE_ENTRY)
     ]);
     for (const file of modelFiles) {
       expect(existsSync(join(pluginRoot, file))).toBe(true);

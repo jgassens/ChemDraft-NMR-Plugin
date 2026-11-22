@@ -5,7 +5,13 @@ import { pathToFileURL } from "node:url";
 import { expect, it } from "vitest";
 
 import type { NmrPredictionResult } from "../domain/contracts";
-import { nmrPredictCarbonCommandId, nmrPredictPhosphorusCommandId, nmrPredictProtonCommandId } from "../manifest";
+import {
+  nmrPredictCarbonCommandId,
+  nmrPredictFluorineCommandId,
+  nmrPredictPhosphorusCommandId,
+  nmrPredictProtonCommandId
+} from "../manifest";
+import { F19_HOSE_TABLE } from "../providers/gnn/modelRelease";
 import { PHOSPHORUS_MEASURED_ACCURACY } from "../providers/ocl/measuredAccuracy";
 import { describePackageArtifact, extractPackageArtifact } from "./packageArtifact";
 
@@ -18,7 +24,8 @@ describePackageArtifact("packaged plugin entry, loaded and run for real", (artif
   it.each([
     { nucleus: "13C", commandId: nmrPredictCarbonCommandId, smiles: "Cc1ccccc1", count: 5, method: "GNN prediction", source: "model", model: "13C" },
     { nucleus: "1H", commandId: nmrPredictProtonCommandId, smiles: "Cc1ccccc1", count: 4, method: "GNN prediction", source: "model", model: "1H" },
-    { nucleus: "31P", commandId: nmrPredictPhosphorusCommandId, smiles: "CCP(CC)CC", count: 1, method: "HOSE lookup", source: "lookup", model: undefined }
+    { nucleus: "31P", commandId: nmrPredictPhosphorusCommandId, smiles: "CCP(CC)CC", count: 1, method: "HOSE lookup", source: "lookup", model: undefined },
+    { nucleus: "19F", commandId: nmrPredictFluorineCommandId, smiles: "FC(F)(F)c1ccccc1", count: 1, method: "GNN prediction", source: "model", model: "19F" }
   ])("predicts $nucleus shifts through the built package", async ({ nucleus, commandId, smiles, count, method, source, model }) => {
     // Execute each command to verify each reference table and each GNN model survives bundling and
     // ZIP extraction. In Node, `typeof Worker === "undefined"`, so entry.js's own fallback path runs:
@@ -114,10 +121,14 @@ describePackageArtifact("packaged plugin entry, loaded and run for real", (artif
       expect(commandResult.data?.resonances).toEqual(
         Array.from({ length: count }, () => expect.objectContaining({ nucleus, source, method }))
       );
-      // Exactly the requested nucleus's model was loaded, and only for ¹H/¹³C.
+      // Exactly the requested nucleus's model was loaded, and only for ¹H/¹³C/¹⁹F.
       expect(fetchedModels.map((file) => file.split(".")[0])).toEqual(model ? [model] : []);
       if (nucleus === "31P") {
         expect(commandResult.data?.backend.dataChecksum).toBe(PHOSPHORUS_MEASURED_ACCURACY.corpusSha256);
+      }
+      if (nucleus === "19F") {
+        // The ¹⁹F table chunk survived bundling: its own input checksum came back with the result.
+        expect(commandResult.data?.backend.dataChecksum).toBe(F19_HOSE_TABLE.inputSha256);
       }
     } finally {
       g.postMessage = previous.postMessage;

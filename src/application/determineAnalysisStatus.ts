@@ -23,7 +23,9 @@ export function determineAnalysisStatus(result: NmrPredictionResult): NmrAnalysi
     NmrWarningCodes.DeuteriumShiftNotModelled,
     NmrWarningCodes.CarbonDeuteriumSplittingNotModelled,
     NmrWarningCodes.DeuteriumCouplingNotShown,
-    NmrWarningCodes.RadicalNotSupported
+    NmrWarningCodes.RadicalNotSupported,
+    NmrWarningCodes.FluorineMultipleEnvironments,
+    NmrWarningCodes.FluorineTypeNotPredicted
   ]);
   const partial =
     result.resonances.some(isRuleEstimated) ||

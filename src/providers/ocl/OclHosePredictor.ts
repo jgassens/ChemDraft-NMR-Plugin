@@ -140,6 +140,9 @@ export class OclHosePredictor implements NmrPredictor {
 
     for (const nucleus of nuclei) {
       throwIfAborted(signal);
+      // This engine has no ¹⁹F table (its capabilities do not list ¹⁹F); the GNN-first predictor
+      // handles ¹⁹F with its own NMRexp table and never passes it here.
+      if (nucleus === "19F") continue;
       const resonanceStart = resonances.length;
       if (nucleus === "31P") {
         if (!this.phosphorusDatabase) {

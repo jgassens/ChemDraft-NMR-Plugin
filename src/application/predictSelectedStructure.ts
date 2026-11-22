@@ -11,6 +11,7 @@ import type { NmrPredictionWarning } from "../domain/warnings";
 import {
   nmrForwardPredictionAnalysisType,
   nmrPredictCarbonCommandId,
+  nmrPredictFluorineCommandId,
   nmrPredictPhosphorusCommandId,
   nmrPredictProtonCommandId,
   nmrPredictorPanelId
@@ -50,7 +51,9 @@ export async function predictSelectedStructure(
   const { selection, panels, analysis } = context;
 
   // "Run again" must re-run the nucleus the user is viewing.
-  const rerunCommandId = config.nuclei.includes("31P")
+  const rerunCommandId = config.nuclei.includes("19F")
+    ? (config.nuclei.length === 1 ? nmrPredictFluorineCommandId : undefined)
+    : config.nuclei.includes("31P")
     ? (config.nuclei.length === 1 ? nmrPredictPhosphorusCommandId : undefined)
     : config.nuclei.includes("1H") ? nmrPredictProtonCommandId : nmrPredictCarbonCommandId;
   const withRerun = (report: PluginPanelReport): PluginPanelReport =>

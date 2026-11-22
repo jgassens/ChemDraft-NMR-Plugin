@@ -55,6 +55,22 @@ fallback; its model weights are separately-tracked data:
   assignments, so offered under the same **nmrshiftdb2 Database License**
   (ODbL-derived) as the HOSE statistics, never under MIT. They contain no
   structures. Provenance and license: `src/providers/ocl/NMRSHIFTDB2_LICENSE.md`.
+- **NMRexp-derived ¹⁹F GNN model weights, training-domain counts and HOSE shift
+  statistics** (`src/providers/gnn/model-19F/19F.fp16.onnx`,
+  `src/providers/gnn/model-19F/domain.json`,
+  `src/providers/gnn/model-19F/hose-table.json`; ¹⁹F, CF3 only) — derived from
+  **NMRexp** by Wang, Jun-Jie and Zhu, Rong (Zenodo, DOI 10.5281/zenodo.17296666;
+  dataset paper Wang, J.-J., Jin, Y., Zhi, C.-Y. et al., Scientific Data 12, 1954
+  (2025), DOI 10.1038/s41597-025-06245-5), licensed under
+  [**CC BY 4.0**](https://creativecommons.org/licenses/by/4.0/). Changes were made:
+  the ¹⁹F rows were filtered (single fluorine environment, single peak),
+  deduplicated, cleaned by a pre-registered outlier rule, and transformed into
+  aggregated HOSE shift statistics and GNN model weights. They contain no
+  structures, are not endorsed by the dataset's creators, and are offered as-is
+  (CC BY 4.0, Section 5). They are under CC BY 4.0, never under MIT and never under
+  the nmrshiftdb2 Database License. NMRShiftDB2 ¹⁹F assignments were used only as
+  the independent test gate; they are not a source of these files.
+  [NMRexp](https://doi.org/10.5281/zenodo.17296666) · [Dataset paper](https://doi.org/10.1038/s41597-025-06245-5) · [Attribution and license text](src/providers/gnn/model-19F/NMREXP_LICENSE.md)
 
 Two lookup providers ship, with separately-tracked data:
 
@@ -83,11 +99,12 @@ Two lookup providers ship, with separately-tracked data:
   [Ilm-NMR-P31 v3.0](https://doi.org/10.5281/zenodo.20762603) · [NMRexp](https://doi.org/10.5281/zenodo.17296666) · [Dataset paper](https://doi.org/10.1186/s13321-023-00792-y) · [clacor/Ilm-NMR-P31 at ead6f914d2bdfb60e4befea72ea503d32978d358](https://github.com/clacor/Ilm-NMR-P31/tree/ead6f914d2bdfb60e4befea72ea503d32978d358) · [Attribution and license text](src/providers/ocl/ILM_NMR_P31_LICENSE.md)
 
 The plugin's original **code is MIT-licensed**, as recorded in `LICENSE`. The root
-`package.json` declares the compiled data assets (both HOSE tables and the GNN
-model weights) and their separate licenses under `dataLicenses`. The panel's
-"Reference database" section shows the license for each database used, and its "GNN
-model" section shows the model's training data and license. The installable package
-includes that package metadata, this notice, and both data license files.
+`package.json` declares the compiled data assets (the HOSE tables and the GNN
+model weights, ¹⁹F included) and their separate licenses under `dataLicenses`. The
+panel's "Reference database" section shows the license and credit for each database
+used, and its "GNN model" sections show each model's training data and license. The
+installable package includes that package metadata, this notice, and every declared
+data license file.
 
 ## Rule-parameter sources
 

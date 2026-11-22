@@ -1,22 +1,22 @@
 /**
  * Lazy ONNX Runtime Web wrapper for the shipped GNN models.
  *
- * Nothing is fetched, imported or compiled until a ¹H or ¹³C prediction asks for that nucleus's model
- * (never at plugin start, never for ³¹P). On that first request the model bytes are fetched from the
- * plugin package, their SHA-256 is checked against `GNN_MODEL_FILES`, and only then is
- * `onnxruntime-web` imported (its own chunk) and an inference session created on the single-threaded
- * WebAssembly backend. The outcome, success or failure, is cached for the life of the worker.
+ * Nothing is fetched, imported or compiled until a ¹H, ¹³C or ¹⁹F prediction asks for that nucleus's
+ * model (never at plugin start, never for ³¹P, and the ¹⁹F model never for ¹H or ¹³C). On that first
+ * request the model bytes are fetched from the plugin package, their SHA-256 is checked against
+ * `GNN_MODEL_FILES`, and only then is `onnxruntime-web` imported (its own chunk) and an inference
+ * session created on the single-threaded WebAssembly backend. The outcome, success or failure, is cached for the life of the worker.
  *
  * Failure is a state, not an exception: a missing file, a checksum mismatch, or a runtime that fails
  * to load all yield `{ status: "unavailable" }`, and the predictor falls back to the HOSE lookup
  * (ABSTENTION.md section 2). An unverified model is never run.
  *
  * Asset URLs use the `new URL("<literal>", import.meta.url)` form so the packaging build (Vite) emits
- * the two models, the ONNX Runtime WebAssembly binary and its loader module as co-located files of
+ * the models, the ONNX Runtime WebAssembly binary and its loader module as co-located files of
  * the plugin package and rewrites these URLs to them. No network access is involved: the files are
  * read from the installed package.
  */
-import { GNN_MODEL_FILES, type GnnNucleus } from "./modelRelease";
+import { GNN_MODEL_FILES, type GnnModelKey } from "./modelRelease";
 import type { GnnMoleculeFeatures } from "./featurize";
 import { gnnInputShapes, type GnnInputTensors } from "./tensors";
 import { nucleusLabel } from "../../domain/nucleusLabel";
@@ -34,7 +34,7 @@ export interface GnnModelInput {
 }
 
 export interface GnnModel {
-  nucleus: GnnNucleus;
+  nucleus: GnnModelKey;
   sha256: string;
   /** One de-normalized ppm value per graph node, in node order. */
   run(input: GnnModelInput): Promise<Float32Array>;
@@ -42,11 +42,11 @@ export interface GnnModel {
 
 export type GnnModelState =
   | { status: "ready"; model: GnnModel }
-  | { status: "unavailable"; nucleus: GnnNucleus; reason: GnnModelUnavailableReason; message: string };
+  | { status: "unavailable"; nucleus: GnnModelKey; reason: GnnModelUnavailableReason; message: string };
 
 /** What the predictor needs from a model source. Tests substitute their own. */
 export interface GnnModelProvider {
-  load(nucleus: GnnNucleus): Promise<GnnModelState>;
+  load(nucleus: GnnModelKey): Promise<GnnModelState>;
 }
 
 /** The slice of `onnxruntime-web` this module uses. */
@@ -72,14 +72,15 @@ export interface GnnModelRuntimeOptions {
   /** Imports ONNX Runtime Web. Default: a dynamic import of `onnxruntime-web/wasm`. */
   loadOrt?: () => Promise<OrtModuleLike>;
   /** Asset URLs. Default: the files bundled with the plugin. */
-  modelUrl?: (nucleus: GnnNucleus) => URL;
+  modelUrl?: (nucleus: GnnModelKey) => URL;
   runtimeUrls?: () => { mjs: URL; wasm: URL };
   /** Expected SHA-256 per model. Default: `GNN_MODEL_FILES`. */
-  expectedSha256?: (nucleus: GnnNucleus) => string;
+  expectedSha256?: (nucleus: GnnModelKey) => string;
 }
 
 /** The bundled model files. Each literal `new URL(...)` is what the packaging build rewrites. */
-export function bundledModelUrl(nucleus: GnnNucleus): URL {
+export function bundledModelUrl(nucleus: GnnModelKey): URL {
+  if (nucleus === "19F") return new URL("./model-19F/19F.fp16.onnx", import.meta.url);
   return nucleus === "1H"
     ? new URL("./model/1H.fp16.onnx", import.meta.url)
     : new URL("./model/13C.fp16.onnx", import.meta.url);
@@ -131,10 +132,10 @@ export class GnnInferenceError extends Error {
 export class GnnModelRuntime implements GnnModelProvider {
   private readonly fetchAsset: (url: URL) => Promise<ArrayBuffer | Uint8Array>;
   private readonly loadOrt: () => Promise<OrtModuleLike>;
-  private readonly modelUrl: (nucleus: GnnNucleus) => URL;
+  private readonly modelUrl: (nucleus: GnnModelKey) => URL;
   private readonly runtimeUrls: () => { mjs: URL; wasm: URL };
-  private readonly expectedSha256: (nucleus: GnnNucleus) => string;
-  private readonly states = new Map<GnnNucleus, Promise<GnnModelState>>();
+  private readonly expectedSha256: (nucleus: GnnModelKey) => string;
+  private readonly states = new Map<GnnModelKey, Promise<GnnModelState>>();
   private ort: Promise<OrtModuleLike> | undefined;
 
   constructor(options: GnnModelRuntimeOptions = {}) {
@@ -146,11 +147,11 @@ export class GnnModelRuntime implements GnnModelProvider {
   }
 
   /** Nuclei whose load has started. */
-  get requested(): readonly GnnNucleus[] {
+  get requested(): readonly GnnModelKey[] {
     return [...this.states.keys()];
   }
 
-  load(nucleus: GnnNucleus): Promise<GnnModelState> {
+  load(nucleus: GnnModelKey): Promise<GnnModelState> {
     let state = this.states.get(nucleus);
     if (!state) {
       state = this.open(nucleus);
@@ -170,7 +171,7 @@ export class GnnModelRuntime implements GnnModelProvider {
     return this.ort;
   }
 
-  private async open(nucleus: GnnNucleus): Promise<GnnModelState> {
+  private async open(nucleus: GnnModelKey): Promise<GnnModelState> {
     const unavailable = (reason: GnnModelUnavailableReason, message: string): GnnModelState => ({
       status: "unavailable",
       nucleus,

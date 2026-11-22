@@ -1,0 +1,113 @@
+{
+  "abstention_md_sha256": "4b620ad5238771666186fdcdee8eca9c03d8f812faafa45fbb781b26e4c87d23",
+  "abstention_notes_sha256": "fa900be351fe048caf0cb45f66fa5a1a8686ad83b7fd331637f847d1ec06f2c0",
+  "atom_features_sha256": "e0973f8095a6b8f1b6b4b8762534c4e05594883234d37f0171f5475242998aa5",
+  "atoms": 2284857,
+  "charge_states": {
+    "B": {
+      "-1:doublet": 5,
+      "-1:none": 760,
+      "-1:triplet": 2,
+      "0:none": 1498,
+      "0:triplet": 1
+    },
+    "Br": {
+      "0:none": 7319,
+      "1:none": 1
+    },
+    "C": {
+      "-1:doublet": 2,
+      "-1:none": 641,
+      "0:doublet": 8,
+      "0:none": 1714464,
+      "1:none": 2
+    },
+    "Cl": {
+      "0:none": 10343
+    },
+    "F": {
+      "-1:none": 1,
+      "0:none": 217840
+    },
+    "I": {
+      "-1:doublet": 7,
+      "-1:none": 6,
+      "0:none": 2276,
+      "1:doublet": 13,
+      "1:none": 22
+    },
+    "N": {
+      "-1:none": 1102,
+      "0:doublet": 2,
+      "0:none": 92720,
+      "1:doublet": 10,
+      "1:none": 5471
+    },
+    "O": {
+      "-1:none": 3315,
+      "0:none": 192936,
+      "1:none": 6
+    },
+    "P": {
+      "0:doublet": 4,
+      "0:none": 1945,
+      "1:none": 37
+    },
+    "S": {
+      "-1:none": 5,
+      "0:doublet": 34,
+      "0:none": 27473,
+      "1:doublet": 4,
+      "1:none": 76
+    },
+    "Se": {
+      "-1:doublet": 4,
+      "0:none": 1347,
+      "1:none": 2
+    },
+    "Si": {
+      "0:none": 2838
+    },
+    "other": {
+      "-1:none": 4,
+      "0:doublet": 2,
+      "0:none": 308,
+      "1:doublet": 1
+    }
+  },
+  "elements": {
+    "B": 2266,
+    "Br": 7320,
+    "C": 1715117,
+    "Cl": 10343,
+    "F": 217841,
+    "I": 2324,
+    "N": 99305,
+    "O": 196257,
+    "P": 1986,
+    "S": 27592,
+    "Se": 1353,
+    "Si": 2838,
+    "other": 315
+  },
+  "heavy_atoms_p999": 64,
+  "molecules": 96709,
+  "population": "graph nodes of train-partition records with scored atoms (the training cache)",
+  "schema_version": "1",
+  "size_limit": 64,
+  "thresholds": {
+    "allowed_isotopes": [
+      "2H",
+      "13C"
+    ],
+    "charge_state_min": 20,
+    "domain_margin": 500,
+    "element_min": 50,
+    "percentile_method": "nearest rank",
+    "size_percentile": [
+      999,
+      1000
+    ],
+    "size_ui_limit": 500
+  }
+}

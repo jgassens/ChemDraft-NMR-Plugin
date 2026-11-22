@@ -19,6 +19,10 @@
  * dropped or recounted, so every remaining notice describes what is shown.
  *
  * The model loads lazily on the first ¹H/¹³C prediction (see `runtime.ts`).
+ *
+ * ¹⁹F (CF3 only) runs its own model and its own NMRexp HOSE table (`f19/predictFluorine.ts`,
+ * docs/f19-benchmark.md §5–6). A request without ¹⁹F takes exactly the ¹H/¹³C/³¹P path above; the
+ * ¹⁹F model and table are never loaded for it.
  */
 import type * as OCL from "openchemlib";
 
@@ -56,7 +60,15 @@ import {
   type GnnTrainingDomain
 } from "./domainRules";
 import { featurizeMolecule, type GnnMoleculeFeatures } from "./featurize";
-import { GNN_AGREEMENT_BANDS, GNN_METHOD_LABEL, GNN_MODEL_RELEASE, HOSE_METHOD_LABEL, type GnnNucleus } from "./modelRelease";
+import {
+  F19_AGREEMENT_BAND_PPM,
+  GNN_AGREEMENT_BANDS,
+  GNN_METHOD_LABEL,
+  GNN_MODEL_RELEASE,
+  HOSE_METHOD_LABEL,
+  type GnnNucleus
+} from "./modelRelease";
+import { loadBundledF19Assets, predictFluorine, type F19AssetLoader } from "./f19/predictFluorine";
 import { GnnModelRuntime, type GnnModelProvider, type GnnModelState } from "./runtime";
 import { packGnnInputs } from "./tensors";
 import { GNN_TRAINING_DOMAIN } from "./trainingDomain";
@@ -81,6 +93,10 @@ export interface GnnShiftPredictorOptions extends OclHosePredictorOptions {
    * change the result.
    */
   onFeatures?: (outcome: { features: GnnMoleculeFeatures } | { error: string }) => void;
+  /** Loader of the ¹⁹F training domain and HOSE table. Default: the bundled files, loaded lazily. */
+  fluorineAssets?: F19AssetLoader;
+  /** The ¹⁹F agreement band. Default: the frozen value shipped with the ¹⁹F model. */
+  fluorineBand?: number;
 }
 
 /** The GNN's outcome for one constitutional class. */
@@ -100,10 +116,14 @@ export class GnnShiftPredictor implements NmrPredictor {
   private readonly domain: GnnTrainingDomain;
   private readonly bands: Readonly<Record<GnnNucleus, number>>;
   private readonly onFeatures?: GnnShiftPredictorOptions["onFeatures"];
+  private readonly fluorineAssets: F19AssetLoader;
+  private readonly fluorineBand: number;
 
   constructor(options: GnnShiftPredictorOptions = {}) {
-    const { models, hose, domain, bands, onFeatures, ...hoseOptions } = options;
+    const { models, hose, domain, bands, onFeatures, fluorineAssets, fluorineBand, ...hoseOptions } = options;
     this.onFeatures = onFeatures;
+    this.fluorineAssets = fluorineAssets ?? loadBundledF19Assets;
+    this.fluorineBand = fluorineBand ?? F19_AGREEMENT_BAND_PPM;
     this.hose = hose ?? new OclHosePredictor(hoseOptions);
     this.models = models ?? new GnnModelRuntime();
     this.domain = domain ?? GNN_TRAINING_DOMAIN;
@@ -113,10 +133,77 @@ export class GnnShiftPredictor implements NmrPredictor {
   /** Never loads a model. */
   async getCapabilities(): Promise<NmrPredictorCapabilities> {
     const hose = await this.hose.getCapabilities();
-    return { ...hose, id: GNN_HOSE_BACKEND_ID, execution: "wasm" };
+    return { ...hose, id: GNN_HOSE_BACKEND_ID, execution: "wasm", nuclei: dedupeNuclei([...hose.nuclei, "19F"]) };
   }
 
   async predict(request: NmrPredictionRequest, signal?: AbortSignal): Promise<NmrPredictionResult> {
+    throwIfAborted(signal);
+    if (request.nuclei.includes("19F")) return this.predictWithFluorine(request, signal);
+    return this.predictHoseAndGnn(request, signal);
+  }
+
+  /**
+   * ¹⁹F with any other requested nuclei. The other nuclei take the unchanged ¹H/¹³C/³¹P path; ¹⁹F is
+   * predicted by `predictFluorine` and its provenance is reported beside them. For a ¹⁹F-only request
+   * the backend's reference database and model fields describe the ¹⁹F table and model, as a
+   * ³¹P-only result's describe the ³¹P table.
+   */
+  private async predictWithFluorine(request: NmrPredictionRequest, signal?: AbortSignal): Promise<NmrPredictionResult> {
+    const nuclei = dedupeNuclei(request.nuclei);
+    const others = nuclei.filter((nucleus) => nucleus !== "19F");
+    // With no other nucleus the HOSE engine still parses the structure, reports its structure-level
+    // notices and builds the depiction; it predicts nothing.
+    const base = others.length > 0
+      ? await this.predictHoseAndGnn({ ...request, nuclei: others }, signal)
+      : await this.hose.predict({ ...request, nuclei: [] }, signal);
+    throwIfAborted(signal);
+
+    const { molecule } = normalizeStructure(request.structure);
+    const maxSpheres = Math.max(1, ...(request.options.hoseLevels.length ? request.options.hoseLevels : [MAX_SPHERES]));
+    const fluorine = await predictFluorine({
+      molecule,
+      context: prepareProductionLookup(molecule, maxSpheres),
+      models: this.models,
+      loadAssets: this.fluorineAssets,
+      band: this.fluorineBand,
+      checkAborted: () => throwIfAborted(signal)
+    });
+    throwIfAborted(signal);
+
+    const resonances = nuclei.flatMap((nucleus) =>
+      nucleus === "19F" ? fluorine.resonances : base.resonances.filter((resonance) => resonance.nucleus === nucleus)
+    );
+    const gnnShown = fluorine.resonances.some((resonance) => resonance.method === GNN_METHOD_LABEL);
+    if (others.length > 0) {
+      return {
+        ...base,
+        backend: {
+          ...base.backend,
+          method: gnnShown ? "gnn" : base.backend.method,
+          fluorineDatabase: fluorine.database,
+          ...(fluorine.model ? { fluorineModel: fluorine.model } : {})
+        },
+        resonances,
+        warnings: [...base.warnings, ...fluorine.warnings]
+      };
+    }
+    const { version, ...database } = fluorine.database;
+    return {
+      ...base,
+      backend: {
+        id: GNN_HOSE_BACKEND_ID,
+        version,
+        method: gnnShown ? "gnn" : "hose-fragment",
+        ...database,
+        ...(fluorine.model ? { model: fluorine.model } : {})
+      },
+      resonances,
+      warnings: [...base.warnings, ...fluorine.warnings]
+    };
+  }
+
+  /** ¹H/¹³C (GNN first) and ³¹P (HOSE lookup). Never loads the ¹⁹F model or table. */
+  private async predictHoseAndGnn(request: NmrPredictionRequest, signal?: AbortSignal): Promise<NmrPredictionResult> {
     throwIfAborted(signal);
     const hoseResult = await this.hose.predict(request, signal);
     const nuclei = dedupeNuclei(request.nuclei);
@@ -166,7 +253,7 @@ export class GnnShiftPredictor implements NmrPredictor {
     for (const nucleus of nuclei) {
       if (nucleus === "31P") {
         resonances.push(...hoseResult.resonances.filter((resonance) => resonance.nucleus === "31P").map(labelHose));
-      } else {
+      } else if (nucleus === "1H" || nucleus === "13C") {
         for (const outcome of outcomes.get(nucleus) ?? []) {
           if (outcome.shipped) resonances.push(outcome.shipped);
         }

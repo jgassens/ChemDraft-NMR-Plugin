@@ -72,14 +72,29 @@ export {
   type GnnModelUnavailableReason
 } from "./providers/gnn/runtime";
 export {
+  F19_AGREEMENT_BAND_PPM,
+  F19_DATA_CREDIT,
+  F19_DATA_LICENSE_ENTRY,
+  F19_HOSE_TABLE,
+  F19_MEASURED_ACCURACY,
+  F19_MODEL_RELEASE,
+  F19_SHIPPED_TYPES,
   GNN_AGREEMENT_BANDS,
   GNN_MEASURED_ACCURACY,
   GNN_METHOD_LABEL,
   GNN_MODEL_FILES,
   GNN_MODEL_RELEASE,
   HOSE_METHOD_LABEL,
+  type GnnModelKey,
   type GnnNucleus
 } from "./providers/gnn/modelRelease";
+export {
+  F19_MULTIPLE_ENVIRONMENTS_MESSAGE,
+  f19TypeNotPredictedMessage,
+  predictFluorine,
+  type F19AssetLoader,
+  type FluorinePredictionOutcome
+} from "./providers/gnn/f19/predictFluorine";
 export {
   assessNode,
   gnnTier,
@@ -115,6 +130,7 @@ export {
   nmrPredictCarbonCommandId,
   nmrPredictProtonCommandId,
   nmrPredictPhosphorusCommandId,
+  nmrPredictFluorineCommandId,
   nmrPredictorPanelId,
   nmrPredictorAnalyzerId,
   nmrForwardPredictionAnalysisType

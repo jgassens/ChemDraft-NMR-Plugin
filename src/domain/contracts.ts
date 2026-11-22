@@ -9,7 +9,7 @@
  */
 import type { NmrPredictionWarning } from "./warnings";
 
-export type NmrNucleus = "1H" | "13C" | "31P";
+export type NmrNucleus = "1H" | "13C" | "31P" | "19F";
 /** Heuristic ¹H reference-spread threshold for flagging a broad HOSE reference distribution; not an accuracy claim. */
 export const PROTON_HIGH_DISPERSION_CROSS_CHECK_PPM = 0.5;
 
@@ -136,7 +136,11 @@ export interface NmrResonance {
    * both "HOSE lookup"). Optional only for session data that predates the GNN.
    */
   method?: NmrResonanceMethod;
-  /** Tier of a GNN prediction; absent for HOSE lookup values, which keep their own match tiers. */
+  /**
+   * Tier of a GNN prediction. ¹H/¹³C HOSE lookup values leave it absent and keep their own match tiers
+   * (from `evidence`); a ¹⁹F HOSE lookup value carries its match tier here too (docs/f19-benchmark.md
+   * §5: low at sphere 1 or n < 3, high at sphere ≥ 3 with n ≥ 8, medium otherwise).
+   */
   tier?: NmrModelTier;
   /** For a GNN prediction: the HOSE match for the same atoms, when one exists. */
   reference?: NmrReferenceLookup;
@@ -206,6 +210,16 @@ export interface NmrPredictionBackend extends NmrReferenceDatabase {
   /** Present when GNN predictions are part of the result. The reference database fields above
    *  then describe the HOSE lookup used as cross-check and fallback. */
   model?: NmrPredictionModel;
+  /**
+   * The ¹⁹F HOSE table (NMRexp-derived) when ¹⁹F was requested together with another nucleus. For a
+   * ¹⁹F-only request the reference database fields above describe it instead.
+   */
+  fluorineDatabase?: NmrReferenceDatabase;
+  /**
+   * The ¹⁹F GNN model when ¹⁹F GNN predictions are part of a result that also holds another nucleus.
+   * For a ¹⁹F-only result `model` describes it instead.
+   */
+  fluorineModel?: NmrPredictionModel;
 }
 
 export interface NmrStructureAtom {
