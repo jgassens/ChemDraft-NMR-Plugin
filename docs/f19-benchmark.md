@@ -104,7 +104,7 @@ and are not mixed into any table in this version.
 
 The first version declines every molecule with more than one fluorine environment (no shift, a
 warning naming the reason), in prediction as in training. A fluorine type that does not pass the
-type rule in §7, including an unjudged type, is declined in production by default.
+type rule in §7, including an unjudged type, is declined in production.
 
 **Fluorine types**, by the atom the fluorine is bonded to, assigned by the first rule that
 applies, in this order:
@@ -144,12 +144,16 @@ molecule collapse, before outlier filtering), scored on the same matched observa
 1. **Primary (gate).** On the NMRShiftDB2 gate, the upper end of the 95% interval for MAE over
    matched molecules is at most **B ppm**.
 2. **Secondary (in-source).** The same for the in-source test. If 1 passes and 2 fails, the
-   result goes to the owner; it does not ship by default.
+   ¹⁹F does not ship in this version.
 3. **Types.** A fluorine type ships only if, on the gate, it has at least 20 matched molecules,
    the upper end of its MAE interval is at most B ppm, and the lower end of the paired bootstrap
    interval for (baseline AE − lookup AE), same resamples, is above 0. Every other type,
-   including one with fewer than 20 matched gate molecules ("unjudged"), is declined by default;
-   only a recorded owner decision can change that.
+   including one with fewer than 20 matched gate molecules ("unjudged"), is declined in this
+   version.
+
+No result in this section can be overridden after opening. Shipping a failed or unjudged type, or
+¹⁹F after a failed rule, needs a new pre-registered protocol scored on data not yet opened; every
+figure from this protocol's sets is then reported as a non-independent opening.
 4. Coverage on both sets is reported; it is not a threshold.
 
 **B = TBD-owner.** The owner sets B before either scored set is opened. The scoring command
