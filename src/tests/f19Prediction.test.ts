@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { PluginPanelReportSchema, type PluginCommandContext, type PluginPanelReport, type PluginSelectedMolecule } from "@chemdraft/plugin-api";
 
+import { determineAnalysisStatus } from "../application/determineAnalysisStatus";
 import { normalizeStructure } from "../application/normalizeStructure";
 import type { NmrNucleus, NmrPredictionRequest, NmrPredictionResult, NmrPredictor, NmrResonance } from "../domain/contracts";
 import { NmrPredictionResultSchema } from "../domain/schemas";
@@ -404,6 +405,39 @@ describe("¹⁹F fallback (§5): HOSE lookup, else no shift", () => {
     const result = await predictor(missing, counted({ ...F19_ASSETS, table: empty })).predict(smiles("FC(F)(F)c1ccccc1"));
     expect(result.resonances).toEqual([]);
     expect(result.warnings.some((entry) => entry.code === NmrWarningCodes.NoFragmentMatch && entry.details?.nucleus === "19F")).toBe(true);
+  });
+});
+
+describe("¹⁹F no-shift results are classified partial in a mixed request", () => {
+  const mixed = () => smiles("FC(F)(F)c1ccccc1", ["13C", "19F"]);
+  const empty: F19HoseTable = { ...F19_ASSETS.table, environments: {} };
+  const missing = () => new GnnModelRuntime({ fetchAsset: async () => { throw new Error("HTTP 404"); } });
+
+  it("is partial when the ¹⁹F data cannot be loaded, although the ¹³C shifts succeed", async () => {
+    const assets = { calls: { count: 0 }, load: async (): Promise<F19Assets> => { throw new Error("chunk failed"); } };
+    const result = await predictor(fakeModels(-62).provider, assets).predict(mixed());
+    expect(result.resonances.some((r) => r.nucleus === "13C")).toBe(true);
+    expect(fluorineOnly(result)).toEqual([]);
+    expect(result.warnings.some((w) => w.code === NmrWarningCodes.GnnModelUnavailable && w.details?.reason === "load-failed")).toBe(true);
+    expect(result.warnings.some((w) => w.code === NmrWarningCodes.PartialPrediction && w.details?.nucleus === "19F")).toBe(true);
+    expect(determineAnalysisStatus(result)).toBe("partial");
+  });
+
+  it("is partial when the model is unavailable and the HOSE lookup has no match", async () => {
+    const result = await predictor(missing(), counted({ ...F19_ASSETS, table: empty })).predict(mixed());
+    expect(result.resonances.some((r) => r.nucleus === "13C")).toBe(true);
+    expect(fluorineOnly(result)).toEqual([]);
+    expect(result.warnings.some((w) => w.code === NmrWarningCodes.GnnModelUnavailable)).toBe(true);
+    expect(determineAnalysisStatus(result)).toBe("partial");
+  });
+
+  it("follows the existing rules when the model is unavailable but a HOSE value is shown", async () => {
+    const carbonOnly = await predictor(missing()).predict(smiles("FC(F)(F)c1ccccc1", ["13C"]));
+    const result = await predictor(missing()).predict(mixed());
+    expect(fluorineOnly(result)).toHaveLength(1);
+    expect(result.warnings.some((w) => w.code === NmrWarningCodes.GnnModelUnavailable && w.details?.nucleus === "19F")).toBe(true);
+    expect(result.warnings.some((w) => w.code === NmrWarningCodes.PartialPrediction && w.details?.nucleus === "19F")).toBe(false);
+    expect(determineAnalysisStatus(result)).toBe(determineAnalysisStatus(carbonOnly));
   });
 });
 

@@ -154,6 +154,13 @@ export async function predictFluorine(options: FluorinePredictionOptions): Promi
       `The ${F19_LABEL} model data could not be loaded, so no ${F19_LABEL} shift is shown. ${error instanceof Error ? error.message : String(error)}`,
       { atomIndices: atoms, details: { nucleus: F19, reason: "load-failed" } }
     ));
+    // The gate table is unreadable too, so no HOSE value can stand in: the CF3 group has no shift. The
+    // analysis status counts GnnModelUnavailable alone as complete, so say that the result is partial.
+    warnings.push(nmrWarning(
+      NmrWarningCodes.PartialPrediction,
+      `No ${F19_LABEL} shift was predicted for atoms ${atoms.join(", ")} (zero-based) because the ${F19_LABEL} data could not be loaded.`,
+      { atomIndices: atoms, details: { nucleus: F19, reason: "load-failed" } }
+    ));
     return declined();
   }
   checkAborted();
