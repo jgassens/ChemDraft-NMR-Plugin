@@ -151,7 +151,10 @@ Both figures describe the shipped combined predictor (the GNN with the gate-tabl
 
 ### Runtime
 
-- **Lazy loading.** The ¹⁹F model, its training domain and its table load only when ¹⁹F is requested for a single-environment CF3 molecule. The table and domain form their own chunk, a dynamic import. The model is fetched, checked and run by the same `GnnModelRuntime` as ¹H/¹³C. Nothing ¹⁹F loads at plugin start, for capabilities, for ¹H/¹³C/³¹P, or for a declined molecule.
+- **Lazy loading.** Nothing ¹⁹F loads at plugin start, for capabilities, or for ¹H/¹³C/³¹P. When ¹⁹F is requested:
+  - for a molecule with no fluorine, or one the scope declines (more than one fluorine environment, fluorine in separate fragments, or a type other than CF3), nothing ¹⁹F loads;
+  - for a single-environment CF3 molecule, the table and the training domain load first, because the decline assessment and the HOSE fallback need them. They form their own chunk, a dynamic import. If a domain rule declines the molecule, that is all that loads: the model and ONNX Runtime are never requested and the HOSE value is shown;
+  - the model loads only when the GNN will run, after the domain assessment passes. It is fetched, checked and run by the same `GnnModelRuntime` as ¹H/¹³C.
 - **Checksum.** The model's bytes must hash to the SHA-256 in `src/providers/gnn/modelRelease.ts` (`GNN_MODEL_FILES["19F"]`) before ONNX Runtime is even imported. A missing file, a mismatch, a runtime that fails to load, or a failure at inference makes the model unavailable. The class then takes the HOSE fallback, with `NMR_GNN_MODEL_UNAVAILABLE` or `NMR_GNN_INFERENCE_FAILED`.
 - **Command.** **Analyze → Predict ¹⁹F NMR Shifts (CF3 only)**. It needs the same permissions as the other commands; `model.load` covers the bundled ¹⁹F model.
 

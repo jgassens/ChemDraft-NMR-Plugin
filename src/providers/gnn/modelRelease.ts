@@ -167,9 +167,6 @@ export const F19_HOSE_TABLE = {
  */
 export const F19_AGREEMENT_BAND_PPM = 5.5;
 
-/** The only fluorine type that passed the pre-registered type rule (§7 rule 1) and ships. */
-export const F19_SHIPPED_TYPES = ["CF3"] as const;
-
 /**
  * Measured accuracy of the combined ¹⁹F predictor (GNN with the gate-table HOSE fallback) on CF3
  * molecules, for this exact release only. Each figure is shown only next to its partition. These are

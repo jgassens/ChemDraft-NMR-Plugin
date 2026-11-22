@@ -203,16 +203,11 @@ export async function predictFluorine(options: FluorinePredictionOptions): Promi
     return { resonances: [hoseResonance(atoms, hose, declines)], warnings, database };
   };
 
-  const state = await models.load(F19);
-  checkAborted();
-  if (state.status === "unavailable") {
-    warnings.push(nmrWarning(
-      NmrWarningCodes.GnnModelUnavailable,
-      `The ${F19_LABEL} GNN model is unavailable (${state.reason}); ${F19_LABEL} shifts are HOSE lookup values. ${state.message}`,
-      { details: { nucleus: F19, reason: state.reason } }
-    ));
-    return fallback([]);
-  }
+  // What happens to the class when the model cannot give a value: the HOSE value, or nothing. The
+  // warning says which, so it never implies a value that is not shown.
+  const fallbackOutcome = hose
+    ? `${F19_LABEL} shifts are HOSE lookup values.`
+    : `no HOSE lookup value exists for these atoms, so no ${F19_LABEL} shift is shown.`;
 
   // Decline assessment over every member atom of the class (§5, rules 1–5).
   let features: GnnMoleculeFeatures | undefined;
@@ -243,6 +238,18 @@ export async function predictFluorine(options: FluorinePredictionOptions): Promi
   const declines = GNN_DECLINE_RULES.filter((rule) => reasons.has(rule));
   if (declines.length > 0 || representativeNode === undefined) return fallback(declines);
 
+  // The model, and with it ONNX Runtime, is requested only now that the domain assessment passed.
+  const state = await models.load(F19);
+  checkAborted();
+  if (state.status === "unavailable") {
+    warnings.push(nmrWarning(
+      NmrWarningCodes.GnnModelUnavailable,
+      `The ${F19_LABEL} GNN model is unavailable (${state.reason}); ${fallbackOutcome} ${state.message}`,
+      { details: { nucleus: F19, reason: state.reason } }
+    ));
+    return fallback([]);
+  }
+
   let predictions: Float32Array;
   try {
     predictions = await state.model.run({ features, tensors: packGnnInputs(features) });
@@ -250,7 +257,7 @@ export async function predictFluorine(options: FluorinePredictionOptions): Promi
     checkAborted();
     warnings.push(nmrWarning(
       NmrWarningCodes.GnnInferenceFailed,
-      `GNN inference failed for ${F19_LABEL}; ${F19_LABEL} shifts are HOSE lookup values. ${error instanceof Error ? error.message : String(error)}`,
+      `GNN inference failed for ${F19_LABEL}; ${fallbackOutcome} ${error instanceof Error ? error.message : String(error)}`,
       { details: { nucleus: F19 } }
     ));
     return fallback([]);

@@ -344,12 +344,58 @@ describe("¹⁹F fallback (§5): HOSE lookup, else no shift", () => {
 
   it("shows the HOSE value, with the decline rules, where the GNN declines", async () => {
     // 70 carbons: above the ¹⁹F model's 64-heavy-atom size limit (rule 5).
-    const result = await predictor(fakeModels(-1).provider).predict(smiles(`FC(F)(F)${"C".repeat(70)}`));
+    const { provider, loads } = fakeModels(-1);
+    const result = await predictor(provider).predict(smiles(`FC(F)(F)${"C".repeat(70)}`));
     expect(result.resonances).toHaveLength(1);
     expect(result.resonances[0]).toMatchObject({ method: "HOSE lookup", modelDeclines: ["size"] });
     expect(result.resonances[0].tier).toBeDefined();
     const [declined] = result.warnings.filter((entry) => entry.code === NmrWarningCodes.GnnDeclined);
     expect(declined.details).toMatchObject({ nucleus: "19F", rules: ["size"] });
+    // The model loads only after the domain assessment passes.
+    expect(loads).toEqual([]);
+  });
+
+  it("does not load the model, or import the runtime, for a CF3 molecule a domain rule declines", async () => {
+    const loadOrt = vi.fn(async (): Promise<OrtModuleLike> => {
+      throw new Error("must not be called");
+    });
+    const fetchAsset = vi.fn(async (url: URL) => readAsset(url));
+    const runtime = new GnnModelRuntime({ fetchAsset, loadOrt });
+    const assets = counted();
+    const result = await predictor(runtime, assets).predict(smiles(`FC(F)(F)${"C".repeat(70)}`));
+    expect(result.resonances[0]).toMatchObject({ method: "HOSE lookup", modelDeclines: ["size"] });
+    expect(assets.calls.count).toBe(1);
+    expect(fetchAsset).not.toHaveBeenCalled();
+    expect(loadOrt).not.toHaveBeenCalled();
+  });
+
+  it("words the unavailable-model and inference-failure warnings by whether a HOSE value is shown", async () => {
+    const missing = new GnnModelRuntime({ fetchAsset: async () => { throw new Error("HTTP 404"); } });
+    const failing = fakeModels(() => { throw new Error("boom"); });
+    const empty: F19HoseTable = { ...F19_ASSETS.table, environments: {} };
+    const emptyAssets = () => counted({ ...F19_ASSETS, table: empty });
+    const message = (result: NmrPredictionResult, code: string) =>
+      result.warnings.find((entry) => entry.code === code && entry.details?.nucleus === "19F")?.message ?? "";
+
+    // A HOSE value is shown.
+    const unavailableShown = await predictor(missing).predict(smiles("FC(F)(F)c1ccccc1"));
+    expect(unavailableShown.resonances).toHaveLength(1);
+    expect(message(unavailableShown, NmrWarningCodes.GnnModelUnavailable)).toContain("¹⁹F shifts are HOSE lookup values");
+    const failedShown = await predictor(failing.provider).predict(smiles("FC(F)(F)c1ccccc1"));
+    expect(failedShown.resonances).toHaveLength(1);
+    expect(message(failedShown, NmrWarningCodes.GnnInferenceFailed)).toContain("¹⁹F shifts are HOSE lookup values");
+
+    // The HOSE lookup has no match, so nothing is shown and the warning must not claim a value.
+    const unavailableNone = await predictor(missing, emptyAssets()).predict(smiles("FC(F)(F)c1ccccc1"));
+    expect(unavailableNone.resonances).toEqual([]);
+    const unavailableText = message(unavailableNone, NmrWarningCodes.GnnModelUnavailable);
+    expect(unavailableText).toContain("no ¹⁹F shift is shown");
+    expect(unavailableText).not.toContain("¹⁹F shifts are HOSE lookup values");
+    const failedNone = await predictor(failing.provider, emptyAssets()).predict(smiles("FC(F)(F)c1ccccc1"));
+    expect(failedNone.resonances).toEqual([]);
+    const failedText = message(failedNone, NmrWarningCodes.GnnInferenceFailed);
+    expect(failedText).toContain("no ¹⁹F shift is shown");
+    expect(failedText).not.toContain("¹⁹F shifts are HOSE lookup values");
   });
 
   it("gives no shift when neither the model nor the table has a value", async () => {
