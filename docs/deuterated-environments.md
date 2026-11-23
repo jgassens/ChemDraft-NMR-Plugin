@@ -29,7 +29,14 @@ table's ¹H assignments. It covers displayed proton environments with D on the
 same heavy atom (H–X–D, geminal) or an adjacent heavy atom where the proton host
 or the deuterium-bearing atom is a heteroatom (H–X–Y–D, vicinal). Computed carbon–carbon vicinal paths do not trigger
 this warning. This conservative graph check includes O/N hosts and does not depend
-on exchange conditions. It does not cover longer-range paths, including aromatic meta paths.
+on exchange conditions. It does not cover longer-range paths; those have their own warning.
+
+Long-range H–D (D four or five bonds from the proton: H–A–X–B–D or H–A–X–Y–B–D, for
+example aromatic meta and para) is not computed, even where the H–H analogue (aromatic
+meta) is shown. The warning `NMR_DEUTERIUM_LONG_RANGE_COUPLING_NOT_SHOWN` contains
+**Long-range H–D coupling not shown** and lists the affected proton host atoms, so
+C₆D₅H, whose quintet holds only the two ortho D, says that its meta and para D
+splittings are missing. Paths of six or more bonds are not disclosed.
 It is emitted only for displayed ¹H environments in this range, so a ¹³C-only
 request, an omitted OH environment, or D farther away does not trigger it.
 

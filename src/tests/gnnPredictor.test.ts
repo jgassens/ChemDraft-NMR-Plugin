@@ -422,6 +422,28 @@ describe("GnnShiftPredictor labels and notices", () => {
     expect(recounted?.atomIndices).toEqual([1]);
   });
 
+  it("runs the HOSE engine's limitation checks on classes only the GNN shows", async () => {
+    const disclosureCodes: string[] = [
+      NmrWarningCodes.PotentiallyDiastereotopicMethyls,
+      NmrWarningCodes.StereoNonequivalentMerged,
+      NmrWarningCodes.DeuteriumCouplingNotShown,
+      NmrWarningCodes.SecondOrderPatternLikely
+    ];
+    const disclosures = (result: NmrPredictionResult) => result.warnings.filter((warning) => disclosureCodes.includes(warning.code));
+    // Diastereotopic methyls and a merged class (3-methylbutan-2-ol), an AA'XX' ring (4-chloroanisole),
+    // a heteroatom-vicinal H–D path (CH3CH2OD).
+    for (const value of ["CC(C)C(C)O", "COc1ccc(Cl)cc1", "CCO[2H]"]) {
+      const request = { ...smiles(value, ["1H", "13C"]), options: { ...OPTIONS, ignoreLabileHydrogens: false } };
+      const expected = disclosures(await new OclHosePredictor({ now: () => "t" }).predict(request));
+      expect(expected.length, value).toBeGreaterThan(0);
+      // The HOSE stand-in shows nothing, so every resonance is a class only the GNN shows.
+      const { provider } = fakeModels({ "1H": {}, "13C": {} });
+      const result = await new GnnShiftPredictor({ models: provider, hose: stubHose([]) }).predict(request);
+      expect(result.resonances.every((resonance) => resonance.method === "GNN prediction"), value).toBe(true);
+      expect(disclosures(result), value).toEqual(expected);
+    }
+  });
+
   it("omits labile protons the request did not ask for, as the HOSE engine does", async () => {
     const { provider, runs } = fakeModels({ "1H": { 0: 1.2, 1: 3.6, 2: 2 } });
     const result = await new GnnShiftPredictor({ models: provider, now: () => "t" }).predict(smiles("CCO", ["1H"]));

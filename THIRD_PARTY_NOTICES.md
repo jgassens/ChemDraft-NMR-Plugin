@@ -61,7 +61,8 @@ Two lookup providers ship, with separately-tracked data:
 - **Fixture provider** (`providers/fixture/fixtureDatabase.ts`) — **ChemDraft-owned
   synthetic fixtures**, not derived from any experimental dataset. Used for
   deterministic tests / offline fallback.
-- **OCL-native provider** (default) — its reference database
+- **OCL-native provider** (the HOSE lookup; the default GNN provider uses it as
+  cross-check and fallback for ¹H/¹³C, and for all ³¹P) — its reference database
   `src/providers/ocl/nmrshiftdb2.database.json` is a **derivative database compiled
   from NMRShiftDB2** assignments (the database does not mark which are experimental), under the **nmrshiftdb2 Database
   License** (ODbL-derived; commercial use permitted, share-alike, attribution).

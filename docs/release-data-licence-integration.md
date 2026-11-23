@@ -4,7 +4,10 @@ Root `package.json` declares three bundled data assets under `dataLicenses`.
 The NMRShiftDB2-derived ¹H/¹³C shift statistics and the NMRShiftDB2-derived GNN
 model weights (with their training-domain counts) use the **nmrshiftdb2 Database
 License (ODbL-derived)**. The Ilm-NMR-P31-derived ³¹P shift statistics use
-**BSD-3-Clause**. The plugin code uses MIT.
+**CC BY 4.0** (Ilm-NMR-P31 v3.0, doi:10.5281/zenodo.20762603, which includes NMRexp
+data, doi:10.5281/zenodo.17296666, also CC BY 4.0); both credits are required. The
+GitHub copy the table was built from carries its own BSD-3-Clause license, copyright
+(c) 2026 Robert Geitner, whose credit is kept. The plugin code uses MIT.
 [NMRShiftDB2 notice](../src/providers/ocl/NMRSHIFTDB2_LICENSE.md) · [Ilm-NMR-P31 license](../src/providers/ocl/ILM_NMR_P31_LICENSE.md)
 
 The host's `tools/plugin-extract/gates.ts` reads `package.json` and validates

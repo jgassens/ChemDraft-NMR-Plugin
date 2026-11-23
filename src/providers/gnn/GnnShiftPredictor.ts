@@ -41,7 +41,12 @@ import { normalizeStructure } from "../../application/normalizeStructure";
 import { computeMultiplet } from "../ocl/coupling";
 import { MAX_SPHERES } from "../ocl/environmentCode";
 import { protonCount } from "../ocl/hydrogenIsotopes";
-import { OclHosePredictor, type OclHosePredictorOptions } from "../ocl/OclHosePredictor";
+import {
+  discloseResonanceLimitations,
+  OclHosePredictor,
+  type OclHosePredictorOptions,
+  type ResonanceDisclosureState
+} from "../ocl/OclHosePredictor";
 import { prepareProductionLookup, type ProductionLookupContext } from "../ocl/productionLookup";
 import { featurizationErrorCode } from "./canonicalDump";
 import {
@@ -146,6 +151,7 @@ export class GnnShiftPredictor implements NmrPredictor {
 
     const gnnWarnings: NmrPredictionWarning[] = [];
     const outcomes = new Map<GnnNucleus, ClassOutcome[]>();
+    const disclosureState: ResonanceDisclosureState = { heavyAtomDiastereotopyAttempted: false };
     for (const nucleus of gnnNuclei) {
       throwIfAborted(signal);
       const classes = (nucleus === "13C" ? context.carbonClasses : context.protonClasses).filter(
@@ -155,10 +161,17 @@ export class GnnShiftPredictor implements NmrPredictor {
       );
       const state = await this.models.load(nucleus);
       throwIfAborted(signal);
-      outcomes.set(
-        nucleus,
-        await this.predictNucleus(nucleus, classes, state, features, featureError, molecule, context, request, hoseByClass, gnnWarnings)
-      );
+      const nucleusOutcomes =
+        await this.predictNucleus(nucleus, classes, state, features, featureError, molecule, context, request, hoseByClass, gnnWarnings);
+      outcomes.set(nucleus, nucleusOutcomes);
+      // The HOSE engine disclosed the limitations of the classes it showed. A class it did not show
+      // and the GNN does gets the same checks here (the checks are per resonance).
+      const gnnOnly = nucleusOutcomes.flatMap((outcome) => (!outcome.hose && outcome.shipped ? [outcome.shipped] : []));
+      if (gnnOnly.length > 0) {
+        discloseResonanceLimitations(
+          molecule, nucleus, gnnOnly, gnnWarnings, request.options.ignoreLabileHydrogens, disclosureState
+        );
+      }
       throwIfAborted(signal);
     }
 

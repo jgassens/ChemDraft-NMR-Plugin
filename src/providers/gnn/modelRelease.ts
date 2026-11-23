@@ -11,8 +11,6 @@
  */
 export type GnnNucleus = "1H" | "13C";
 
-export const GNN_NUCLEI: readonly GnnNucleus[] = ["1H", "13C"];
-
 /** Method labels carried by every ¹H/¹³C resonance (ABSTENTION.md section 5). */
 export const GNN_METHOD_LABEL = "GNN prediction" as const;
 export const HOSE_METHOD_LABEL = "HOSE lookup" as const;

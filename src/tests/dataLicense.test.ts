@@ -7,7 +7,12 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import packageJson from "../../package.json" with { type: "json" };
+import { ILM_P31_PROVENANCE } from "../../scripts/ilm-nmr-p31";
 import { addPackageNotices } from "../../scripts/package-notices";
+import type { NmrNucleus } from "../domain/contracts";
+import bundledPhosphorusDatabase from "../providers/ocl/ilm-nmr-p31.database.json";
+import { OclHosePredictor } from "../providers/ocl/OclHosePredictor";
+import { composePredictionReport } from "../report/composePredictionReport";
 import { describePackageArtifact } from "./packageArtifact";
 
 const pluginRoot = fileURLToPath(new URL("../../", import.meta.url));
@@ -122,6 +127,36 @@ describe("bundled database licenses", () => {
     expect(phosphorus.attribution).toContain("10.5281/zenodo.20762603");
     expect(phosphorus.attribution).toContain("10.5281/zenodo.17296666");
     expect(phosphorus.attribution).toContain("CC BY 4.0");
+  });
+
+  it("shows the ³¹P table's package.json license and credit line in the prediction report", async () => {
+    const declared = packageJson.dataLicenses.find((entry) => entry.path === phosphorusDatasetPath)!;
+    // The generator and the bundled table's header carry the same strings as package.json.
+    for (const provenance of [ILM_P31_PROVENANCE, bundledPhosphorusDatabase.provenance]) {
+      expect(provenance.license).toBe(declared.license);
+      expect(provenance.attribution).toBe(declared.attribution);
+      expect(provenance.licenseUrl).toBe("https://creativecommons.org/licenses/by/4.0/");
+    }
+    const predictor = new OclHosePredictor();
+    const smiles = "CCP(CC)CC";
+    // ³¹P alone (the table is the primary database) and alongside ¹H (a separate ³¹P section).
+    for (const nuclei of [["31P"], ["1H", "31P"]] as NmrNucleus[][]) {
+      const result = await predictor.predict({
+        structure: { format: "smiles", value: smiles },
+        nuclei,
+        options: { statistic: "median", hoseLevels: [4, 3, 2, 1], ignoreLabileHydrogens: true }
+      });
+      const report = composePredictionReport({
+        objectId: "m1", structure: smiles, structureFormat: "smiles", sourceFingerprint: "fp"
+      }, result);
+      const index = report.sections.findIndex((section) => section.kind === "keyValue"
+        && section.rows.some((row) => row.label === "Measured accuracy (³¹P)"));
+      expect(index, nuclei.join(",")).toBeGreaterThanOrEqual(0);
+      const database = report.sections[index] as { rows: { label: string; value: string }[] };
+      expect(database.rows.find((row) => row.label === "License")?.value).toBe(declared.license);
+      expect(report.sections[index + 1]).toMatchObject({ kind: "text", body: declared.attribution });
+      expect(JSON.stringify(report.sections)).not.toContain('"value":"BSD-3-Clause"');
+    }
   });
 
   it("ships declared notices and package metadata in the zip with an updated checksum", () => {
