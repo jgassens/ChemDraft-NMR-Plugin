@@ -188,7 +188,7 @@ export class GnnShiftPredictor implements NmrPredictor {
     const allOutcomes = [...outcomes.values()].flat();
     const warnings = [
       ...reconcileHoseWarnings(hoseResult.warnings, hoseResult.resonances, allOutcomes, nuclei, resonances),
-      ...gnnWarnings
+      ...mergeWarningsByCode(gnnWarnings, MERGED_GNN_CODES)
     ];
     const gnnShippedNuclei = gnnNuclei.filter((nucleus) =>
       resonances.some((resonance) => resonance.nucleus === nucleus && resonance.method === GNN_METHOD_LABEL)
@@ -484,6 +484,53 @@ function ruleEstimateWarning(estimates: readonly NmrResonance[], nuclei: readonl
     { severity: "warning", atomIndices: estimateAtoms(estimates) }
   );
 }
+
+/**
+ * One entry per warning code, in first-seen order. Same-code warnings (one per atom class, or per
+ * nucleus) merge: atomIndices become the sorted union, the messages are kept in full (each names its
+ * own atoms), and details keep the keys all entries agree on plus an `entries` list of every
+ * original details object. A code that occurs once is returned untouched.
+ */
+function mergeWarningsByCode(
+  warnings: readonly NmrPredictionWarning[],
+  codes: ReadonlySet<string>
+): NmrPredictionWarning[] {
+  const passthrough = warnings.filter((warning) => !codes.has(warning.code));
+  const groups = new Map<string, NmrPredictionWarning[]>();
+  for (const warning of warnings.filter((item) => codes.has(item.code))) {
+    const group = groups.get(warning.code);
+    if (group) group.push(warning);
+    else groups.set(warning.code, [warning]);
+  }
+  const merged = [...groups.values()].map((group) => {
+    if (group.length === 1) return group[0];
+    const atoms = group.flatMap((warning) => warning.atomIndices ?? []);
+    const detailList = group.flatMap((warning) => (warning.details ? [warning.details] : []));
+    const shared: Record<string, unknown> = {};
+    for (const key of Object.keys(detailList[0] ?? {})) {
+      const value = JSON.stringify(detailList[0][key]);
+      if (detailList.every((details) => key in details && JSON.stringify(details[key]) === value)) {
+        shared[key] = detailList[0][key];
+      }
+    }
+    const entry: NmrPredictionWarning = {
+      code: group[0].code,
+      message: [...new Set(group.map((warning) => warning.message))].join(" "),
+      severity: group.some((warning) => warning.severity === "error")
+        ? "error"
+        : group.some((warning) => warning.severity === "warning") ? "warning" : "info"
+    };
+    if (atoms.length > 0) entry.atomIndices = [...new Set(atoms)].sort((a, b) => a - b);
+    if (detailList.length > 0) entry.details = { ...shared, entries: detailList };
+    return entry;
+  });
+  return [...merged, ...passthrough];
+}
+
+const MERGED_GNN_CODES: ReadonlySet<string> = new Set([
+  NmrWarningCodes.ModelLookupDisagreement,
+  NmrWarningCodes.GnnDeclined
+]);
 
 function representativeOf(context: ProductionLookupContext, atoms: readonly number[]): number {
   return context._representativeByAtom[atoms[0]] ?? atoms[0];
