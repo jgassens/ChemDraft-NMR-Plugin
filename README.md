@@ -235,7 +235,7 @@ match its frozen SHA-256.
 
 Measured on the shipped predictor, CF3 only:
 
-- NMRShiftDB2 single-environment CF3 molecules (independent gate, first opening):
+- NMRShiftDB2 single-environment CF3 molecules (selected on the gate; the model and table did not train on it):
   MAE 3.47 ppm [95% interval 2.25, 5.02], 157 molecules
 - held-out NMRexp source files (10%, molecule-deduplicated), CF3: MAE 3.53 ppm
   [2.10, 5.23], 6,903 molecules

@@ -61,8 +61,9 @@ experimental measurements:
 - CH3CH2OD retains ethanol's CH3/CH2 ¹H shifts at 1.09/3.50 ppm (3H/2H) and
   ¹³C shifts at 13.93/65.00 ppm, with no OH resonance.
   The CH2 ¹H value of 3.50 ppm and ¹³C value of 65.00 ppm are rule-based estimates.
-  The CH2 host carries the omitted H–D coupling warning; the CH3 host is outside
-  the chosen range.
+  The CH2 host carries the omitted H–D coupling warning. The CH3 host is four
+  bonds from the D (H–C–C–O–D), so it carries
+  `NMR_DEUTERIUM_LONG_RANGE_COUPLING_NOT_SHOWN`: that coupling is not shown either.
 - CD3OH has no ¹H resonances. Its OH environment is declined with the same
   warning as plain methanol, which also has no supported OH match or fallback.
   Its carbon uses a rule-based estimate of 65.00 ppm and carries the C–D warning.

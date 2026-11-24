@@ -173,9 +173,9 @@ export const F19_AGREEMENT_BAND_PPM = 5.5;
  */
 export const F19_MEASURED_ACCURACY = {
   scope: "CF3 only",
-  /** Primary: the independent NMRShiftDB2 gate (never a training or table input). */
+  /** Primary: the NMRShiftDB2 gate (never a training or table input; CF3 eligibility was selected on it, §8 rule 2). */
   gate:
-    "NMRShiftDB2 single-environment CF3 molecules (independent gate, first opening): MAE 3.47 ppm [95% interval 2.25, 5.02], 157 molecules",
+    "NMRShiftDB2 single-environment CF3 molecules (selected on the gate; the model and table did not train on it): MAE 3.47 ppm [95% interval 2.25, 5.02], 157 molecules",
   /** Secondary: the NMRexp in-source test partition (held-out source files; §3 claims source-file,
    *  not paper-level, independence). */
   inSourceTest:

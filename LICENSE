@@ -24,7 +24,7 @@ SOFTWARE.
 
 ## Scope: the MIT grant above covers this plugin's original code only
 
-The three bundled data assets and the third-party dependencies retain their own
+The four bundled data assets and the third-party dependencies retain their own
 licenses.
 
 - **NMRShiftDB2-derived HOSE shift statistics** are a derivative database under
@@ -55,6 +55,23 @@ licenses.
   `src/providers/ocl/ilm-nmr-p31.database.json`. The package embeds the data in
   `nmrWorker-*.js` and `GnnShiftPredictor-*.js` at the ZIP root. See
   `src/providers/ocl/ILM_NMR_P31_LICENSE.md` for the attribution and license text.
+
+- **NMRexp-derived ¹⁹F GNN model weights, training-domain counts and HOSE
+  shift statistics** are derived from NMRexp (Wang, Jun-Jie and Zhu, Rong,
+  Zenodo DOI 10.5281/zenodo.17296666; dataset paper: Wang, J.-J., Jin, Y.,
+  Zhi, C.-Y. et al., Scientific Data 12, 1954 (2025),
+  DOI 10.1038/s41597-025-06245-5), which is licensed under **CC BY 4.0**
+  (https://creativecommons.org/licenses/by/4.0/). They are offered under
+  CC BY 4.0, not under MIT and not under the nmrshiftdb2 Database License.
+  Changes were made: the ¹⁹F rows were filtered (single fluorine environment,
+  single peak), deduplicated, cleaned by an outlier rule and transformed into
+  aggregated HOSE shift statistics and GNN model weights by ChemDraft; no
+  structures are included. Not endorsed by the dataset authors. NMRShiftDB2
+  was used only to test the ¹⁹F model; it is not a source of these files. The
+  source files are `src/providers/gnn/model-19F/19F.fp16.onnx`,
+  `src/providers/gnn/model-19F/domain.json` and
+  `src/providers/gnn/model-19F/hose-table.json`. See
+  `src/providers/gnn/model-19F/NMREXP_LICENSE.md`.
 
 - **Third-party dependencies** — openchemlib (BSD-3-Clause), zod (MIT),
   onnxruntime-web 1.22.0 (MIT, Microsoft; shipped as `ort.wasm.bundle.min-*.js`,

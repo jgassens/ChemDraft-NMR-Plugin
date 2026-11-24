@@ -104,7 +104,7 @@ It exits 2 on any difference.
 
 - The Web Worker in the desktop app (WKWebView) has not been exercised by these tests; there, a missing WebAssembly SIMD feature or Web Crypto makes the model unavailable and the HOSE lookup is used.
 - Node's `fetch` cannot read `file:` URLs, so a Node host using the default `GnnShiftPredictor` gets the HOSE fallback with `NMR_GNN_MODEL_UNAVAILABLE` (reason `missing`). A Node host passes its own reader instead: `new GnnShiftPredictor({ models: new GnnModelRuntime({ fetchAsset: async (url) => new Uint8Array(await readFile(url)) }) })`. In Node, ONNX Runtime Web's Emscripten loader also sets `globalThis.Worker` to `worker_threads.Worker` when it first loads.
-- The stereo and second-order disclosure notices are computed by the HOSE engine for the classes it emits. A class the GNN predicts but the HOSE engine omitted gets no such notice.
+- The stereo and second-order disclosure notices are computed by the HOSE engine for the classes it emits. A class the GNN predicts but the HOSE engine omitted still gets the stereo and second-order notices: `GnnShiftPredictor` calls `discloseResonanceLimitations` for it.
 - Equivalent atoms that differ only in configuration (for example the two carbinol carbons of a meso diol) share one resonance, valued at the representative atom.
 - Schema 1 does not distinguish ring cis/trans configurations or enhanced stereo (see [gnn-features.md](gnn-features.md)), and the model sees no solvent.
 
@@ -132,7 +132,7 @@ Both figures describe the shipped combined predictor (the GNN with the gate-tabl
 
 | Set | Figure |
 | --- | --- |
-| Gate (primary) | NMRShiftDB2 single-environment CF3 molecules (independent gate, first opening): MAE 3.47 ppm [95% interval 2.25, 5.02], 157 molecules |
+| Gate (primary) | NMRShiftDB2 single-environment CF3 molecules (selected on the gate; the model and table did not train on it): MAE 3.47 ppm [95% interval 2.25, 5.02], 157 molecules |
 | In-source test (secondary) | held-out NMRexp source files (10%, molecule-deduplicated), CF3: MAE 3.53 ppm [2.10, 5.23], 6,903 molecules |
 
 - The intervals are the protocol's percentile bootstrap (§7: 1,000 resamples, groups are gate molecules or source keys).

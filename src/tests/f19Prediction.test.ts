@@ -512,7 +512,7 @@ describe("¹⁹F in the panel", () => {
     expect(text).toContain("CF3 only");
     expect(text).toContain("Predicted ¹⁹F NMR (CF3 only)");
     expect(text).toContain(
-      "NMRShiftDB2 single-environment CF3 molecules (independent gate, first opening): MAE 3.47 ppm [95% interval 2.25, 5.02], 157 molecules"
+      "NMRShiftDB2 single-environment CF3 molecules (selected on the gate; the model and table did not train on it): MAE 3.47 ppm [95% interval 2.25, 5.02], 157 molecules"
     );
     expect(text).toContain("held-out NMRexp source files (10%, molecule-deduplicated), CF3: MAE 3.53 ppm [2.10, 5.23], 6,903 molecules");
     expect(text).toContain("GNN prediction");
