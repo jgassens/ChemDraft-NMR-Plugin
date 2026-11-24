@@ -11,8 +11,6 @@
  */
 export type GnnNucleus = "1H" | "13C";
 
-export const GNN_NUCLEI: readonly GnnNucleus[] = ["1H", "13C"];
-
 /**
  * Every bundled GNN model the runtime can load: the ¹H/¹³C models above and the separately trained
  * ¹⁹F model (CF3 only; see `F19_MODEL_RELEASE`). The ¹⁹F model has its own training data, license,

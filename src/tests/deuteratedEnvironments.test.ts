@@ -6,6 +6,8 @@ import { determineAnalysisStatus } from "../application/determineAnalysisStatus"
 import type { NmrPredictionResult } from "../domain/contracts";
 import { firstOrderLines } from "../domain/firstOrderCoupling";
 import { NmrWarningCodes } from "../domain/warnings";
+import { collectProtonEnvironments } from "../providers/fixture/fixtureEnvironment";
+import { FixtureHosePredictor } from "../providers/fixture/FixtureHosePredictor";
 import { OclHosePredictor } from "../providers/ocl/OclHosePredictor";
 import { prepareProductionLookup, productionEnvironmentCodes } from "../providers/ocl/productionLookup";
 import { estimateProtonIncrement } from "../providers/ocl/incrementEstimator";
@@ -129,6 +131,11 @@ describe("deuterated host molfile environments", () => {
     expect(result.warnings.find((w) => w.code === NmrWarningCodes.DeuteriumShiftNotModelled)?.message)
       .toContain("H–D couplings are typical first-order estimates");
     expect(result.warnings.map((w) => w.code)).not.toContain(NmrWarningCodes.DeuteriumCouplingNotShown);
+    // The quintet holds only the two ortho D. The two meta D (⁴J) and the para D (⁵J) are not
+    // computed (coupling.ts adds meta coupling for ordinary H only), so the shown pattern must
+    // carry a notice saying those splittings are missing.
+    expect(result.warnings.find((w) => w.code === NmrWarningCodes.DeuteriumLongRangeCouplingNotShown))
+      .toMatchObject({ atomIndices: [0], message: expect.stringContaining("aromatic meta or para") });
     const carbons = result.resonances.filter((r) => r.nucleus === "13C");
     expect(carbons.reduce((sum, r) => sum + r.equivalentNuclei, 0)).toBe(6);
     expect(carbons.flatMap((r) => r.atomRefs.map((ref) => ref.sourceAtomIndex)).sort()).toEqual([0, 1, 2, 3, 4, 5]);
@@ -194,11 +201,14 @@ describe("deuterated host molfile environments", () => {
     expect(fullyDeuterated.warnings.map((w) => w.code)).not.toContain(NmrWarningCodes.DeuteriumCouplingNotShown);
   });
 
-  it("does not warn about H–D coupling when D is outside the geminal/vicinal range", async () => {
+  it("discloses D four bonds away as long-range, not as a geminal/vicinal omission", async () => {
     const result = await predict(hostMolfile(["C", "C", "C", "C", "O", "H"],
       [[1, 2, 1], [2, 3, 1], [2, 4, 1], [2, 5, 1], [5, 6, 1]], [6])); // (CH3)3COD
     expect(protons(result).reduce((sum, r) => sum + r.equivalentNuclei, 0)).toBe(9);
     expect(result.warnings.map((w) => w.code)).not.toContain(NmrWarningCodes.DeuteriumCouplingNotShown);
+    // H–C–C–O–D is a ⁴J path the model does not compute: the methyl singlet carries that notice.
+    expect(result.warnings.find((w) => w.code === NmrWarningCodes.DeuteriumLongRangeCouplingNotShown)?.atomIndices)
+      .toEqual([0, 2, 3]);
     assertFirstOrderDisclosure(result);
   });
 
@@ -255,4 +265,31 @@ describe("deuterated host molfile environments", () => {
         .toBe(true);
     }
   );
+});
+
+describe("fixture provider with deuterium", () => {
+  function environments(molfile: string) {
+    const molecule = OCL.Molecule.fromMolfile(molfile);
+    molecule.ensureHelperArrays(OCL.Molecule.cHelperRings);
+    return collectProtonEnvironments(molecule);
+  }
+
+  it("excludes D from ¹H counts: CD3Cl has no ¹H environment, CH2DCl has two protons", () => {
+    const chloromethane = ["C", "Cl", "H", "H", "H"];
+    const bonds = [[1, 2, 1], [1, 3, 1], [1, 4, 1], [1, 5, 1]];
+    expect(environments(hostMolfile(chloromethane, bonds, [3, 4, 5]))).toEqual([]); // CD3Cl
+    expect(environments(hostMolfile(chloromethane.slice(0, 3), bonds.slice(0, 2), [3])) // CH2DCl
+      .map(({ atomIndex, protonCount: count }) => [atomIndex, count])).toEqual([[0, 2]]);
+  });
+
+  it("predicts only the CH3 of acetone-d3 and none of its D", async () => {
+    const acetoneD3 = hostMolfile(["C", "C", "O", "C", "H", "H", "H"],
+      [[1, 2, 1], [2, 3, 2], [2, 4, 1], [4, 5, 1], [4, 6, 1], [4, 7, 1]], [5, 6, 7]); // CH3C(O)CD3
+    const result = await new FixtureHosePredictor({ now: () => "t" }).predict({
+      structure: { format: "molfile-v2000", value: acetoneD3 }, nuclei: ["1H"], options, sourceFingerprint: "regression"
+    });
+    expect(protons(result).map((r) => [r.equivalentNuclei, r.atomRefs])).toEqual([
+      [3, [{ sourceAtomIndex: 0, element: "H", equivalentCount: 3 }]]
+    ]);
+  });
 });

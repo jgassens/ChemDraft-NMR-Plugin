@@ -6,9 +6,11 @@ export const ILM_P31_PROVENANCE = {
   name: "Ilm-NMR-P31 (GitHub clacor/Ilm-NMR-P31 @ ead6f91)",
   version: "ead6f914d2bdfb60e4befea72ea503d32978d358",
   source: "https://github.com/clacor/Ilm-NMR-P31/tree/ead6f914d2bdfb60e4befea72ea503d32978d358",
-  license: "BSD-3-Clause",
-  licenseUrl: "https://github.com/clacor/Ilm-NMR-P31/blob/ead6f914d2bdfb60e4befea72ea503d32978d358/LICENSE",
-  attribution: "Ilm-NMR-P31, Hack et al. (2023), doi:10.1186/s13321-023-00792-y. Copyright (c) 2026 Robert Geitner. Redistributed with the author's permission (owner, 2026-11-20).",
+  // Same strings as package.json dataLicenses (the source of truth). The data is CC BY 4.0;
+  // BSD-3-Clause is the GitHub copy's own license, credited in the license string and notice.
+  license: "CC-BY-4.0 (Ilm-NMR-P31 v3.0, doi:10.5281/zenodo.20762603); the GitHub copy's own license is BSD-3-Clause",
+  licenseUrl: "https://creativecommons.org/licenses/by/4.0/",
+  attribution: "Geitner, R. (2026), Ilm-NMR-P31 v3.0, Zenodo, doi:10.5281/zenodo.20762603, CC BY 4.0 (BSD-3-Clause, copyright (c) 2026 Robert Geitner, kept for the GitHub copy). Includes data from NMRexp: Wang, J.-J. and Zhu, R. (2025), doi:10.5281/zenodo.17296666, CC BY 4.0. Filtered and transformed into aggregated HOSE shift statistics.",
   note: "Aggregated ³¹P HOSE environment shift statistics from all Ilm-NMR-P31 SDF entries."
 };
 

@@ -10,6 +10,8 @@ export const NmrWarningCodes = {
   DeuteriumShiftNotModelled: "NMR_DEUTERIUM_SHIFT_NOT_MODELLED",
   CarbonDeuteriumSplittingNotModelled: "NMR_CARBON_DEUTERIUM_SPLITTING_NOT_MODELLED",
   DeuteriumCouplingNotShown: "NMR_DEUTERIUM_COUPLING_NOT_SHOWN",
+  /** D four or five bonds from a shown proton (aromatic meta/para, other long-range paths): not computed. */
+  DeuteriumLongRangeCouplingNotShown: "NMR_DEUTERIUM_LONG_RANGE_COUPLING_NOT_SHOWN",
   RadicalNotSupported: "NMR_RADICAL_NOT_SUPPORTED",
   LabileProtonOmitted: "NMR_LABILE_PROTON_OMITTED",
   NoFragmentMatch: "NMR_NO_FRAGMENT_MATCH",

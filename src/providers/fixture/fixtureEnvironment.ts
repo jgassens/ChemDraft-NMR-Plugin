@@ -1,5 +1,7 @@
 import * as OCL from "openchemlib";
 
+import { protonCount as observedProtonCount } from "../ocl/hydrogenIsotopes";
+
 /**
  * Deterministic atom-centered environment code via a breadth-first walk to `spheres` depth. Each
  * sphere contributes a sorted, bracketed list of neighbor descriptors
@@ -104,7 +106,8 @@ export interface ProtonEnvironment extends AtomEnvironment {
 export function collectProtonEnvironments(molecule: OCL.Molecule, spheres = 2): ProtonEnvironment[] {
   const environments: ProtonEnvironment[] = [];
   for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
-    const protonCount = molecule.getAllHydrogens(atom);
+    // D is excluded from ¹H counts, as in normalizeStructure: CD3Cl has no ¹H environment.
+    const protonCount = observedProtonCount(molecule, atom);
     if (protonCount === 0) {
       continue;
     }

@@ -23,6 +23,7 @@ export function determineAnalysisStatus(result: NmrPredictionResult): NmrAnalysi
     NmrWarningCodes.DeuteriumShiftNotModelled,
     NmrWarningCodes.CarbonDeuteriumSplittingNotModelled,
     NmrWarningCodes.DeuteriumCouplingNotShown,
+    NmrWarningCodes.DeuteriumLongRangeCouplingNotShown,
     NmrWarningCodes.RadicalNotSupported,
     NmrWarningCodes.FluorineMultipleEnvironments,
     NmrWarningCodes.FluorineTypeNotPredicted

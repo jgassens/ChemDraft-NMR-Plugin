@@ -134,8 +134,7 @@ export class OclHosePredictor implements NmrPredictor {
         details: { check: "diastereotopic-hydrogen", partial: true }
       });
     }
-    let heavyAtomDiastereotopicIds: readonly (string | undefined)[] | undefined;
-    let heavyAtomDiastereotopyAttempted = false;
+    const disclosureState: ResonanceDisclosureState = { heavyAtomDiastereotopyAttempted: false };
     let omittedPhosphorus = 0;
 
     for (const nucleus of nuclei) {
@@ -175,47 +174,9 @@ export class OclHosePredictor implements NmrPredictor {
         totals.estimated += counts.estimated;
         totals.omitted += counts.omitted;
       }
-      const nucleusResonances = resonances.slice(resonanceStart);
-      const specificallyWarnedMethylAtoms =
-        nucleus === "31P"
-          ? new Set<number>()
-          : runDisclosureCheck(warnings, "potentially diastereotopic methyl", () =>
-              warnPotentiallyDiastereotopicMethyls(molecule, nucleus, nucleusResonances, warnings)
-            ) ?? new Set<number>();
-      if (
-        !heavyAtomDiastereotopyAttempted &&
-        nucleusResonances.some((resonance) => resonance.atomRefs.length > 1)
-      ) {
-        heavyAtomDiastereotopyAttempted = true;
-        heavyAtomDiastereotopicIds = runDisclosureCheck(
-          warnings,
-          "stereochemically merged class",
-          () => componentLocalHeavyAtomDiastereotopicIds(molecule)
-        );
-      }
-      if (heavyAtomDiastereotopicIds) {
-        runDisclosureCheck(warnings, "stereochemically merged class", () =>
-          warnStereochemicallyDistinctMergedClasses(
-            molecule,
-            nucleus,
-            nucleusResonances,
-            specificallyWarnedMethylAtoms,
-            warnings,
-            heavyAtomDiastereotopicIds
-          )
-        );
-      }
-      if (nucleus === "1H") {
-        warnUnmodelledDeuteriumCoupling(molecule, nucleusResonances, warnings);
-        runDisclosureCheck(warnings, "magnetic-equivalence", () =>
-          warnLikelySecondOrderPatterns(
-            molecule,
-            nucleusResonances,
-            warnings,
-            request.options.ignoreLabileHydrogens
-          )
-        );
-      }
+      discloseResonanceLimitations(
+        molecule, nucleus, resonances.slice(resonanceStart), warnings, request.options.ignoreLabileHydrogens, disclosureState
+      );
     }
 
     if (totals.estimated > 0) {
@@ -276,6 +237,64 @@ export class OclHosePredictor implements NmrPredictor {
       generatedAt: this.now(),
       depiction: buildStructureDepiction(molecule)
     };
+  }
+}
+
+/** Per-prediction cache for `discloseResonanceLimitations`: the heavy-atom diastereotopic IDs are
+ * computed at most once, the first time a multi-atom class is shown. */
+export interface ResonanceDisclosureState {
+  heavyAtomDiastereotopyAttempted: boolean;
+  heavyAtomDiastereotopicIds?: readonly (string | undefined)[];
+}
+
+/** The limitation checks for one nucleus's shown resonances: diastereotopic methyl pairs and
+ * stereochemically merged classes, and for ¹H omitted H–D coupling and likely second-order patterns.
+ * Every check is per resonance, so a caller may run it on any subset of what it shows (the GNN
+ * predictor runs it on the classes it adds beyond the HOSE engine's). */
+export function discloseResonanceLimitations(
+  molecule: OCL.Molecule,
+  nucleus: NmrNucleus,
+  nucleusResonances: readonly NmrResonance[],
+  warnings: NmrPredictionWarning[],
+  ignoreLabileHydrogens: boolean,
+  state: ResonanceDisclosureState = { heavyAtomDiastereotopyAttempted: false }
+): void {
+  const specificallyWarnedMethylAtoms =
+    nucleus === "31P"
+      ? new Set<number>()
+      : runDisclosureCheck(warnings, "potentially diastereotopic methyl", () =>
+          warnPotentiallyDiastereotopicMethyls(molecule, nucleus, nucleusResonances, warnings)
+        ) ?? new Set<number>();
+  if (
+    !state.heavyAtomDiastereotopyAttempted &&
+    nucleusResonances.some((resonance) => resonance.atomRefs.length > 1)
+  ) {
+    state.heavyAtomDiastereotopyAttempted = true;
+    state.heavyAtomDiastereotopicIds = runDisclosureCheck(
+      warnings,
+      "stereochemically merged class",
+      () => componentLocalHeavyAtomDiastereotopicIds(molecule)
+    );
+  }
+  const heavyAtomDiastereotopicIds = state.heavyAtomDiastereotopicIds;
+  if (heavyAtomDiastereotopicIds) {
+    runDisclosureCheck(warnings, "stereochemically merged class", () =>
+      warnStereochemicallyDistinctMergedClasses(
+        molecule,
+        nucleus,
+        nucleusResonances,
+        specificallyWarnedMethylAtoms,
+        warnings,
+        heavyAtomDiastereotopicIds
+      )
+    );
+  }
+  if (nucleus === "1H") {
+    warnUnmodelledDeuteriumCoupling(molecule, nucleusResonances, warnings);
+    warnLongRangeDeuteriumCoupling(molecule, nucleusResonances, warnings);
+    runDisclosureCheck(warnings, "magnetic-equivalence", () =>
+      warnLikelySecondOrderPatterns(molecule, nucleusResonances, warnings, ignoreLabileHydrogens)
+    );
   }
 }
 
@@ -345,6 +364,37 @@ function warnUnmodelledDeuteriumCoupling(
     warnings.push(nmrWarning(
       NmrWarningCodes.DeuteriumCouplingNotShown,
       `H–D coupling not shown for proton host atoms ${atomIndices.join(", ")} (zero-based): geminal paths and vicinal paths involving heteroatoms are omitted. Carbon–carbon vicinal H–D coupling is shown where present.`,
+      { atomIndices }
+    ));
+  }
+}
+
+/** Disclose D four or five bonds from a shown proton (H–A–X–B–D and H–A–X–Y–B–D: aromatic meta
+ * and para, and other long-range paths). coupling.ts computes H–D only over C–C vicinal paths, so these
+ * are absent from every shown multiplet even where the H–H analogue (aromatic meta) is shown.
+ * Paths of six or more bonds are not disclosed. */
+function warnLongRangeDeuteriumCoupling(
+  molecule: OCL.Molecule,
+  resonances: readonly NmrResonance[],
+  warnings: NmrPredictionWarning[]
+): void {
+  const deuteriumHosts: number[] = [];
+  for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
+    if (isDeuterium(molecule, atom) && molecule.getAllConnAtoms(atom) > 0) {
+      deuteriumHosts.push(molecule.getConnAtom(atom, 0));
+    }
+  }
+  if (deuteriumHosts.length === 0) return;
+  const atomIndices = [...new Set(resonances.flatMap((resonance) =>
+    resonance.atomRefs.map((ref) => ref.sourceAtomIndex)
+  ))].filter((host) => protonCount(molecule, host) > 0 && deuteriumHosts.some((deuteriumHost) => {
+    const bonds = molecule.getPathLength(host, deuteriumHost);
+    return bonds === 2 || bonds === 3;
+  })).sort((a, b) => a - b);
+  if (atomIndices.length > 0) {
+    warnings.push(nmrWarning(
+      NmrWarningCodes.DeuteriumLongRangeCouplingNotShown,
+      `Long-range H–D coupling not shown for proton host atoms ${atomIndices.join(", ")} (zero-based): D sits four or five bonds away (for example aromatic meta or para). This model computes H–D coupling only over three bonds between carbons, so the multiplet omits these small splittings, which can broaden the lines.`,
       { atomIndices }
     ));
   }

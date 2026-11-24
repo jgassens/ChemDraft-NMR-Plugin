@@ -182,6 +182,8 @@ Carbon–carbon vicinal H–D coupling is shown as a typical first-order estimat
 with spin-1 patterns, as described above. `NMR_DEUTERIUM_COUPLING_NOT_SHOWN` lists
 proton host atoms only where geminal H–D or vicinal paths involving heteroatoms
 are omitted. Computed carbon–carbon vicinal paths do not trigger that warning.
+`NMR_DEUTERIUM_LONG_RANGE_COUPLING_NOT_SHOWN` lists proton host atoms with D four
+or five bonds away (for example aromatic meta or para), which is not computed.
 Existing H–H splitting uses only the remaining ordinary hydrogens.
 ¹³C predictions on D-bearing carbons also carry
 `NMR_CARBON_DEUTERIUM_SPLITTING_NOT_MODELLED`: C–D splitting and isotope shifts
@@ -254,8 +256,10 @@ In the benchmark partition **held-out source references, 10%, molecule-deduplica
 the lookup matched 4,812 of 5,577 phosphorus observations (86.3%). The matched predictions had an
 MAE of 6.817 ppm, an RMSE of 18.357 ppm, and a median absolute error of 2.335 ppm.
 The benchmark training table used the same five-observation cutoff as the bundled table.
-The panel displays those benchmark measurements when the table's corpus checksum
-matches. [Benchmark protocol and results](docs/p31-benchmark.md)
+When the table's corpus checksum matches, the panel shows one row from this
+benchmark: the median absolute error (2.335 ppm) followed by the per-tier median
+absolute errors, the partition name and the benchmark date. Match rate, MAE and
+RMSE are not shown in the panel. [Benchmark protocol and results](docs/p31-benchmark.md)
 
 Confidence tiers describe match depth and reference population. With the bundled
 table, high means sphere 3 or 4 with at least eight observations, low means a

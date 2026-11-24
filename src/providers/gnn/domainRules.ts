@@ -155,9 +155,6 @@ export interface GnnAssessment {
   margin: boolean;
 }
 
-/** A molecule the featurizer rejected: every atom is declined by rule 5. */
-export const GNN_GRAPH_DECLINE: GnnAssessment = Object.freeze({ declines: ["graph"], margin: false }) as GnnAssessment;
-
 /**
  * abstention.py `assess`: decline reasons for the GNN at `node` and whether the atom clears the
  * domain margin. Rules 1-3 read the node and each graph neighbor; rule 4 the whole molecule.
