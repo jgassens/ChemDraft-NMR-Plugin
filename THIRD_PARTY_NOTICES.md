@@ -69,7 +69,7 @@ fallback; its model weights are separately-tracked data:
   structures, are not endorsed by the dataset's creators, and are offered as-is
   (CC BY 4.0, Section 5). They are under CC BY 4.0, never under MIT and never under
   the nmrshiftdb2 Database License. NMRShiftDB2 ¹⁹F assignments were used only as
-  the independent test gate; they are not a source of these files.
+  the test gate; they are not a source of these files.
   [NMRexp](https://doi.org/10.5281/zenodo.17296666) · [Dataset paper](https://doi.org/10.1038/s41597-025-06245-5) · [Attribution and license text](src/providers/gnn/model-19F/NMREXP_LICENSE.md)
 
 Two lookup providers ship, with separately-tracked data:

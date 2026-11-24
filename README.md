@@ -298,7 +298,7 @@ reports chemical shifts and leaves solvent effects and ³¹P splitting unmodeled
   Zhi, C.-Y. et al., Scientific Data 12, 1954 (2025)), under
   [**CC BY 4.0**](https://creativecommons.org/licenses/by/4.0/). The rows were filtered,
   deduplicated, outlier-cleaned and transformed into HOSE statistics and GNN weights; no
-  structures are included. NMRShiftDB2 was used only as the independent test gate and
+  structures are included. NMRShiftDB2 was used only as the test gate and
   is not a source of these files.
   [Attribution and license text](src/providers/gnn/model-19F/NMREXP_LICENSE.md)
 - The fixture provider's values are **synthetic**, labeled as such everywhere.

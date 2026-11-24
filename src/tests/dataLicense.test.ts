@@ -69,7 +69,7 @@ describe("NMRexp ¹⁹F credit and license (docs/f19-benchmark.md §9)", () => {
       expect(text).toContain("https://creativecommons.org/licenses/by/4.0/");
       expect(text).toContain("single fluorine environment, single peak");
       expect(text).toContain("no structures are included");
-      expect(text).toContain("NMRShiftDB2 was used only as the independent test gate");
+      expect(text).toContain("NMRShiftDB2 was used only as the test gate");
     }
     expect(F19_DATA_LICENSE_ENTRY.license).toBe("CC-BY-4.0");
     expect(F19_DATA_LICENSE_ENTRY.licenseUrl).toBe("https://creativecommons.org/licenses/by/4.0/");
@@ -99,7 +99,7 @@ describe("NMRexp ¹⁹F credit and license (docs/f19-benchmark.md §9)", () => {
     for (const text of ["NMRexp", "Wang, Jun-Jie and Zhu, Rong", "10.5281/zenodo.17296666", "CC BY 4.0", F19_NOTICE_FILE, ...F19_DATA_FILES]) {
       expect(thirdParty).toContain(text);
     }
-    expect(thirdParty).toContain("NMRShiftDB2 ¹⁹F assignments were used only as\n  the independent test gate");
+    expect(thirdParty).toContain("NMRShiftDB2 ¹⁹F assignments were used only as\n  the test gate");
     // The NMRShiftDB2 notice is not stretched to cover the ¹⁹F files.
     const nmrshiftdb2 = readFileSync(join(pluginRoot, noticeFile), "utf8");
     for (const file of F19_DATA_FILES) expect(nmrshiftdb2).not.toContain(file);

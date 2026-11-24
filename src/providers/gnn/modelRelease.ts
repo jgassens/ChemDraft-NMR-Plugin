@@ -193,7 +193,7 @@ export const F19_DATA_CREDIT =
   "Scientific Data 12, 1954 (2025), doi:10.1038/s41597-025-06245-5. Changes were made: the ¹⁹F rows were " +
   "filtered (single fluorine environment, single peak), deduplicated, cleaned by an outlier rule and " +
   "transformed into aggregated HOSE shift statistics and GNN model weights by ChemDraft; no structures are " +
-  "included. Not endorsed by the dataset authors. NMRShiftDB2 was used only as the independent test gate; it " +
+  "included. Not endorsed by the dataset authors. NMRShiftDB2 was used only as the test gate; it " +
   "is not a source of the ¹⁹F model or table.";
 
 /** Bundled ¹⁹F files, all NMRexp-derived under CC BY 4.0 (never MIT, never the NMRShiftDB2 license). */
@@ -225,5 +225,5 @@ export const F19_DATA_LICENSE_ENTRY = {
     "¹⁹F rows filtered (single fluorine environment, single peak), deduplicated, cleaned by the pre-registered outlier rule, and transformed into aggregated HOSE shift statistics and GNN model weights; no structures are included.",
   noticeFile: F19_NOTICE_FILE,
   note:
-    "Trained and compiled under the pre-registered protocol docs/f19-benchmark.md (commit 7794cd9). NMRShiftDB2 was used only as the independent test gate; it is not a source of these files."
+    "Trained and compiled under the pre-registered protocol docs/f19-benchmark.md (commit 7794cd9). NMRShiftDB2 was used only as the test gate; it is not a source of these files."
 } as const;

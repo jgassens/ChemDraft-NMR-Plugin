@@ -15,7 +15,7 @@ figure produced after it is reported as a non-independent opening.
   carry no atom assignment and no per-row referencing standard. Columns used: `Filename`,
   `SMILES`, `NMR_type`, `NMR_solvent`, `NMR_processed`. The authors' `Atom_number_diff_env` is not
   used; the environment rule below uses the plugin's own symmetry classes.
-- **Independent gate: NMRShiftDB2 ¹⁹F assignments**, from the same NMReDATA export the plugin's
+- **Gate: NMRShiftDB2 ¹⁹F assignments**, from the same NMReDATA export the plugin's
   ¹H/¹³C table is built from (`scripts/build-database.ts`), atom-assigned. Its SHA-256 is
   recorded in `freeze.json` (§8).
 

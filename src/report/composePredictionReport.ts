@@ -620,7 +620,7 @@ function fluorineModelSections(model: NmrPredictionModel, result: NmrPredictionR
     table.dataChecksum === F19_HOSE_TABLE.inputSha256
   ) {
     rows.push(
-      { label: "Measured MAE (¹⁹F, CF3 only, independent gate)", value: F19_MEASURED_ACCURACY.gate },
+      { label: "Measured MAE (¹⁹F, CF3 only, selected on the gate)", value: F19_MEASURED_ACCURACY.gate },
       { label: "Measured MAE (¹⁹F, CF3 only, NMRexp check)", value: F19_MEASURED_ACCURACY.inSourceTest }
     );
   }

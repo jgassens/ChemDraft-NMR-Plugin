@@ -520,7 +520,7 @@ describe("¹⁹F in the panel", () => {
     // NMRexp credit in the reference database section; NMRShiftDB2 only as the gate.
     expect(text).toContain("Wang, Jun-Jie and Zhu, Rong, NMRexp");
     expect(text).toContain("https://creativecommons.org/licenses/by/4.0/");
-    expect(text).toContain("NMRShiftDB2 was used only as the independent test gate");
+    expect(text).toContain("NMRShiftDB2 was used only as the test gate");
     // No solvent claim and no ¹H couplings text for ¹⁹F.
     expect(text).not.toContain("CDCl₃");
     expect(text).not.toContain("¹H–¹H couplings");
