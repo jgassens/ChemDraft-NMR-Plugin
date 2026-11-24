@@ -1,5 +1,6 @@
 import type { NmrNucleus, NmrPredictionResult } from "../domain/contracts";
 import { isRuleEstimated } from "../domain/contracts";
+import { HD_ESTIMATE_LABEL, HD_SVG_FOOTER_PREFIX, RULE_ESTIMATE_MARKER } from "./labels";
 import { DEFAULT_PROTON_FREQUENCY_MHZ, deuteriumMultipletLines, hasDeuteriumCoupling } from "./deuteriumMultiplet";
 
 export interface StickSpectrumOptions {
@@ -52,11 +53,11 @@ export function renderStickSpectrumSvg(result: NmrPredictionResult, options: Sti
           const lineTop = round(baseY - stickHeight * line.intensity / maxIntensity);
           return `<line x1="${lineX}" y1="${baseY}" x2="${lineX}" y2="${lineTop}" stroke="${estimated ? "#64748b" : "#2563eb"}" stroke-width="2"${estimated ? ' stroke-dasharray="4 3"' : ""} />`;
         }).join("") +
-          `<text x="${px}" y="${round(topY - 4)}" font-size="10" text-anchor="middle" fill="#1e3a8a">${resonance.deltaPpm.toFixed(1)}${estimated ? " est." : ""} (${escapeXml(resonance.multiplet?.label ?? "m")}; H–D est.)</text>`;
+          `<text x="${px}" y="${round(topY - 4)}" font-size="10" text-anchor="middle" fill="#1e3a8a">${resonance.deltaPpm.toFixed(1)}${estimated ? ` ${RULE_ESTIMATE_MARKER}` : ""} (${escapeXml(resonance.multiplet?.label ?? "m")}; ${HD_ESTIMATE_LABEL})</text>`;
       }
       return (
         `<line x1="${px}" y1="${baseY}" x2="${px}" y2="${topY}" stroke="${estimated ? "#64748b" : "#2563eb"}" stroke-width="2"${estimated ? ' stroke-dasharray="4 3"' : ""} />` +
-        `<text x="${px}" y="${round(topY - 4)}" font-size="10" text-anchor="middle" fill="#1e3a8a">${resonance.deltaPpm.toFixed(1)}${estimated ? " est." : ""}</text>`
+        `<text x="${px}" y="${round(topY - 4)}" font-size="10" text-anchor="middle" fill="#1e3a8a">${resonance.deltaPpm.toFixed(1)}${estimated ? ` ${RULE_ESTIMATE_MARKER}` : ""}</text>`
       );
     })
     .join("");
@@ -88,7 +89,7 @@ export function renderStickSpectrumSvg(result: NmrPredictionResult, options: Sti
       ? `<text x="${round(width / 2)}" y="${height - 6 - (hasDeuterium ? 16 : 0)}" font-size="10" text-anchor="middle" fill="#475569">est. / dashed stick = rule estimate; no database match</text>`
       : "") +
     (hasDeuterium
-      ? `<text x="${round(width / 2)}" y="${height - 6}" font-size="10" text-anchor="middle" fill="#475569">H–D: typical first-order estimates; spin-1 intensities; ${protonFrequencyMHz} MHz</text>`
+      ? `<text x="${round(width / 2)}" y="${height - 6}" font-size="10" text-anchor="middle" fill="#475569">${HD_SVG_FOOTER_PREFIX}${protonFrequencyMHz} MHz</text>`
       : "") +
     `</svg>`
   );
