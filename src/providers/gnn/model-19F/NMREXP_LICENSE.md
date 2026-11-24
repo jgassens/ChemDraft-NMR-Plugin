@@ -35,7 +35,7 @@ endorsed by the dataset's creators.
 
 ## What NMRShiftDB2 did and did not contribute
 
-NMRShiftDB2 ¹⁹F assignments were used only as the independent test gate that decided whether ¹⁹F
+NMRShiftDB2 ¹⁹F assignments were used only as the test gate that decided whether ¹⁹F
 ships, and for which fluorine type (CF3). They are not a source of the ¹⁹F model, its
 training-domain counts or the ¹⁹F HOSE table: none of them was trained on or compiled from
 NMRShiftDB2 shifts.

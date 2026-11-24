@@ -93,7 +93,7 @@ describe("NMRexp ¹⁹F credit and license (docs/f19-benchmark.md §9)", () => {
     ]) {
       expect(notice).toContain(text);
     }
-    expect(notice).toContain("used only as the independent test gate");
+    expect(notice).toContain("used only as the test gate");
     expect(notice).toContain("They are not a source of the ¹⁹F model");
     const thirdParty = readFileSync(join(pluginRoot, "THIRD_PARTY_NOTICES.md"), "utf8");
     for (const text of ["NMRexp", "Wang, Jun-Jie and Zhu, Rong", "10.5281/zenodo.17296666", "CC BY 4.0", F19_NOTICE_FILE, ...F19_DATA_FILES]) {
