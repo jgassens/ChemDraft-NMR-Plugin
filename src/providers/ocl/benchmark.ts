@@ -1,12 +1,13 @@
+import { createHash } from "node:crypto";
 import * as OCL from "openchemlib";
 
 import type { NmrNucleus, NmrPredictionOptions } from "../../domain/contracts";
 import { MAX_SPHERES } from "./environmentCode";
 import { estimateProtonIncrement } from "./incrementEstimator";
 import type { CompiledNmrDatabase } from "./localDatabase";
-import { lookupProductionEnvironment, prepareProductionLookup, productionCodeAtom, shiftFor } from "./productionLookup";
-import type { NmredataRecord } from "./nmredata";
-import { parseNmredataMolecule } from "./nmredataMolecule";
+import { assignedProductionAtoms, lookupProductionEnvironment, prepareProductionLookup, shiftFor } from "./productionLookup";
+import { extractMolfile, type NmredataRecord } from "./nmredata";
+import { parseMolfileWithStereoRecovery, parseNmredataMolecule } from "./nmredataMolecule";
 
 /**
  * Leakage-free accuracy benchmark (ADR-0026). The corpus is split by *structure identity* (OCL
@@ -67,6 +68,58 @@ export function splitCorpusByStructure(records: readonly NmredataRecord[], optio
   return { train, heldOut, unparseable };
 }
 
+export const PHOSPHORUS_HOLD_OUT_PER_MILLE = 100;
+export const PHOSPHORUS_BOOTSTRAP_RESAMPLES = 1000;
+export const PHOSPHORUS_BOOTSTRAP_SEED = 1;
+
+interface SourceEntry {
+  stem: string;
+  ref: string;
+  raw: string;
+}
+
+export function sourceReferenceKey(stem: string, ref: string): string {
+  const normalized = ref.toLowerCase().replace(/\s+/g, " ").trim();
+  return normalized && normalized !== "na" ? normalized : `stem:${stem.replace(/-CMP\d+$/, "")}`;
+}
+
+export function sourceReferenceBucket(key: string): number {
+  return createHash("sha256").update(key, "utf8").digest().readUInt32BE(0) % 1000;
+}
+
+/** Split by source, then remove every training entry that shares a stereo-free OCL identity with
+ * the held-out partition. Require an identity for every entry to enforce the leakage guard. */
+export function splitCorpusBySourceReference<T extends SourceEntry>(entries: readonly T[]) {
+  const heldOut: { entry: T; groupKey: string }[] = [];
+  const testIdcodes = new Set<string>();
+  const candidates: { entry: T; idcode: string }[] = [];
+
+  for (const entry of entries) {
+    const molfile = extractMolfile(entry.raw);
+    const idcode = molfile && stereoFreeIdcode(molfile);
+    if (!idcode) {
+      throw new Error(`Missing OpenChemLib structure for SDF entry ${entry.stem}`);
+    }
+    const groupKey = sourceReferenceKey(entry.stem, entry.ref);
+    if (sourceReferenceBucket(groupKey) < PHOSPHORUS_HOLD_OUT_PER_MILLE) {
+      heldOut.push({ entry, groupKey });
+      testIdcodes.add(idcode);
+    } else {
+      candidates.push({ entry, idcode });
+    }
+  }
+
+  const train = candidates.filter(({ idcode }) => !testIdcodes.has(idcode)).map(({ entry }) => entry);
+  return { train, heldOut, droppedTrainingDuplicates: candidates.length - train.length };
+}
+
+function stereoFreeIdcode(molfile: string): string | undefined {
+  const molecule = parseMolfileWithStereoRecovery(molfile);
+  return molecule.getAllAtoms() > 0
+    ? new OCL.Canonizer(molecule, { neglectAnyStereoInformation: true }).getIDCode()
+    : undefined;
+}
+
 export type BenchmarkTier = "high" | "medium" | "low";
 
 export interface BenchmarkRow {
@@ -94,6 +147,7 @@ export function benchmarkTier(sphere: number, n: number): BenchmarkTier {
 export interface EvaluateOptions {
   statistic?: NmrPredictionOptions["statistic"];
   maxSpheres?: number;
+  nuclei?: readonly NmrNucleus[];
 }
 
 /** Score every usable held-out assignment against the (train-only) database. Assignment semantics —
@@ -111,65 +165,32 @@ export function evaluateHeldOut(
 
   for (let structureIndex = 0; structureIndex < heldOut.length; structureIndex += 1) {
     const record = heldOut[structureIndex];
-    const parsed = parseNmredataMolecule(record.molfile);
+    const parsed = parseNmredataMolecule(record.molfile, { recoverStereoParsing: record.phosphorusLabels.size > 0 });
     if (!parsed) {
       continue;
     }
-    const { molecule, oclAtomByMolfileIndex } = parsed;
+    const { molecule } = parsed;
     // Prepared once per record; environment codes remain cached across every assignment and atom.
     const lookupContext = prepareProductionLookup(molecule, maxSpheres);
-    const carbonClassByAtom = indexProductionClasses(lookupContext.carbonClasses);
-    const protonClassByAtom = indexProductionClasses(lookupContext.protonClasses);
 
-    for (const assignment of record.assignments) {
-      const nucleus: NmrNucleus | undefined = record.carbonLabels.has(assignment.label)
-        ? "13C"
-        : record.protonLabels.has(assignment.label)
-          ? "1H"
-          : undefined;
-      if (!nucleus) continue;
-
-      const classByAtom = nucleus === "13C" ? carbonClassByAtom : protonClassByAtom;
-      const seenClasses = new Set<number>();
-      // Match compiler weighting: duplicate atoms from one production symmetry class count once,
-      // but a single ambiguous/multi-atom assignment spanning distinct classes produces each row.
-      for (const atomReference of assignment.atoms) {
-        const oclAtom = oclAtomByMolfileIndex.get(atomReference);
-        if (oclAtom === undefined) continue;
-        const codeAtom = productionCodeAtom(molecule, nucleus, oclAtom);
-        if (codeAtom < 0) continue;
-        const classIndex = classByAtom.get(codeAtom);
-        if (classIndex === undefined || seenClasses.has(classIndex)) continue;
-        seenClasses.add(classIndex);
-
-        const row: BenchmarkRow = { nucleus, structureIndex, assignedPpm: assignment.shift };
-        const lookup = lookupProductionEnvironment(database, lookupContext, nucleus, codeAtom);
-        const found = lookup.match;
-        if (found) {
-          row.hosePpm = shiftFor(found.entry, statistic);
-          row.sphere = found.entry.sphere;
-          row.n = found.entry.n;
-          row.tier = benchmarkTier(found.entry.sphere, found.entry.n);
-        }
-        if (nucleus === "1H") {
-          const increment = estimateProtonIncrement(molecule, lookup.representativeAtom);
-          if (increment.applicable) {
-            row.incrementPpm = increment.ppm;
-          }
-        }
-        rows.push(row);
+    for (const { nucleus, atom, shift } of assignedProductionAtoms(record, parsed, lookupContext, options.nuclei)) {
+      const row: BenchmarkRow = { nucleus, structureIndex, assignedPpm: shift };
+      const lookup = lookupProductionEnvironment(database, lookupContext, nucleus, atom);
+      const found = lookup.match;
+      if (found) {
+        row.hosePpm = shiftFor(found.entry, statistic);
+        row.sphere = found.entry.sphere;
+        row.n = found.entry.n;
+        row.tier = benchmarkTier(found.entry.sphere, found.entry.n);
       }
+      if (nucleus === "1H") {
+        const increment = estimateProtonIncrement(molecule, lookup.representativeAtom);
+        if (increment.applicable) row.incrementPpm = increment.ppm;
+      }
+      rows.push(row);
     }
   }
   return rows;
-}
-
-function indexProductionClasses(classes: readonly (readonly number[])[]): ReadonlyMap<number, number> {
-  const classByAtom = new Map<number, number>();
-  for (let classIndex = 0; classIndex < classes.length; classIndex += 1) {
-    for (const atom of classes[classIndex]) classByAtom.set(atom, classIndex);
-  }
-  return classByAtom;
 }
 
 export interface ErrorStats {
@@ -177,6 +198,7 @@ export interface ErrorStats {
   mae: number;
   medianAe: number;
   p90Ae: number;
+  rmse?: number;
 }
 
 export interface NucleusBenchmark {
@@ -197,7 +219,7 @@ export interface NucleusBenchmark {
 
 export type BenchmarkSummary = Partial<Record<NmrNucleus, NucleusBenchmark>>;
 
-function errorStats(errors: readonly number[]): ErrorStats {
+function errorStats(errors: readonly number[], includeRmse = false): ErrorStats {
   const sorted = [...errors].sort((a, b) => a - b);
   const count = sorted.length;
   if (count === 0) {
@@ -207,14 +229,18 @@ function errorStats(errors: readonly number[]): ErrorStats {
   const mid = Math.floor(count / 2);
   const medianAe = count % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
   const p90Ae = sorted[Math.min(count - 1, Math.ceil(count * 0.9) - 1)];
-  return { count, mae: round3(mae), medianAe: round3(medianAe), p90Ae: round3(p90Ae) };
+  return {
+    count, mae: round3(mae), medianAe: round3(medianAe), p90Ae: round3(p90Ae),
+    ...(includeRmse ? { rmse: round3(Math.sqrt(sorted.reduce((sum, value) => sum + value ** 2, 0) / count)) } : {})
+  };
 }
 
 export function aggregateBenchmark(rows: readonly BenchmarkRow[]): BenchmarkSummary {
   const summary: BenchmarkSummary = {};
-  for (const nucleus of ["1H", "13C"] as const) {
+  for (const nucleus of ["1H", "13C", "31P"] as const) {
     const assigned = rows.filter((row) => row.nucleus === nucleus);
     if (assigned.length === 0) continue;
+    const includeRmse = nucleus === "31P";
     const matched = assigned.filter((row) => row.hosePpm !== undefined);
     const errorsOf = (subset: readonly BenchmarkRow[], value: (row: BenchmarkRow) => number | undefined) =>
       subset.flatMap((row) => {
@@ -226,7 +252,7 @@ export function aggregateBenchmark(rows: readonly BenchmarkRow[]): BenchmarkSumm
     for (const tier of ["high", "medium", "low"] as const) {
       const tierRows = matched.filter((row) => row.tier === tier);
       if (tierRows.length > 0) {
-        byTier[tier] = errorStats(errorsOf(tierRows, (row) => row.hosePpm));
+        byTier[tier] = errorStats(errorsOf(tierRows, (row) => row.hosePpm), includeRmse);
       }
     }
 
@@ -235,7 +261,7 @@ export function aggregateBenchmark(rows: readonly BenchmarkRow[]): BenchmarkSumm
       matched: matched.length,
       coverage: round3(matched.length / assigned.length),
       structures: new Set(assigned.map((row) => row.structureIndex)).size,
-      hose: errorStats(errorsOf(matched, (row) => row.hosePpm)),
+      hose: errorStats(errorsOf(matched, (row) => row.hosePpm), includeRmse),
       byTier
     };
 
@@ -262,6 +288,48 @@ export function aggregateBenchmark(rows: readonly BenchmarkRow[]): BenchmarkSumm
     summary[nucleus] = nucleusSummary;
   }
   return summary;
+}
+
+/** Percentile intervals from resampling source groups with replacement. Each draw retains all
+ * matched-atom errors in the chosen group, including multiple observations from one molecule. */
+export function bootstrapPhosphorusErrors(rows: readonly BenchmarkRow[], groupKeys: readonly string[]) {
+  const byGroup = new Map(groupKeys.map((key) => [key, { count: 0, absolute: 0, squared: 0 }]));
+  for (const row of rows) {
+    if (row.nucleus !== "31P" || row.hosePpm === undefined) continue;
+    const group = byGroup.get(groupKeys[row.structureIndex]);
+    if (!group) throw new Error(`Missing source group for held-out record ${row.structureIndex}`);
+    const error = Math.abs(row.assignedPpm - row.hosePpm);
+    group.count += 1;
+    group.absolute += error;
+    group.squared += error ** 2;
+  }
+
+  const groups = [...byGroup.values()];
+  if (groups.every(({ count }) => count === 0)) return undefined;
+  const mae: number[] = [];
+  const rmse: number[] = [];
+  let state = PHOSPHORUS_BOOTSTRAP_SEED;
+  for (let resample = 0; resample < PHOSPHORUS_BOOTSTRAP_RESAMPLES; resample += 1) {
+    let count = 0;
+    let absolute = 0;
+    let squared = 0;
+    for (let draw = 0; draw < groups.length; draw += 1) {
+      state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+      const group = groups[Math.floor((state / 2 ** 32) * groups.length)];
+      count += group.count;
+      absolute += group.absolute;
+      squared += group.squared;
+    }
+    if (count > 0) {
+      mae.push(absolute / count);
+      rmse.push(Math.sqrt(squared / count));
+    }
+  }
+  const interval = (values: number[]): [number, number] => {
+    values.sort((a, b) => a - b);
+    return [0.025, 0.975].map((p) => round3(values[Math.ceil(p * values.length) - 1])) as [number, number];
+  };
+  return { mae: interval(mae), rmse: interval(rmse) };
 }
 
 const round3 = (value: number): number => Math.round(value * 1000) / 1000;

@@ -16,10 +16,11 @@
  *     shared `AbortController`; its `onPanelClosed` runs here when the host forwards `panelClosed`, so a
  *     late result cannot revive a dismissed panel.
  *
- * If a nested Worker cannot be created, this entry still uses the real OCL predictor in the same thread,
- * lazily imported so its reference database stays a separate chunk rather than being pulled into
- * `entry.js`. The nested-worker verdict is reported from observed evidence, never silently swallowed by
- * this fallback.
+ * If a nested Worker cannot be created, this entry still uses the real predictor (the GNN-first
+ * predictor with its HOSE fallback) in the same thread, lazily imported so its reference database and
+ * the model runtime stay separate chunks rather than being pulled into `entry.js`. The GNN model itself
+ * loads only on the first ¹H/¹³C prediction. The nested-worker verdict is reported from observed
+ * evidence, never silently swallowed by this fallback.
  *
  * Stays inside the ADR-0028 SDK boundary (`@chemdraft/plugin-api` + this plugin's own relative modules).
  * It has a **top-level side effect** — it starts the worker runtime — so it is deliberately not
@@ -33,12 +34,13 @@ import { nmrPredictorManifest } from "./manifest";
 import { createNmrRegistration } from "./register";
 import { createNmrWorkerClient } from "./worker/nmrWorkerClient";
 
-/** In-thread OCL predictor for the case where a nested Worker cannot be created here. The lazy dynamic
- *  import keeps the reference database in its own chunk, fetched only if this path is actually taken. */
-function createLazyOclPredictor(): NmrPredictor {
+/** In-thread predictor for the case where a nested Worker cannot be created here. The lazy dynamic
+ *  import keeps the reference database and the model runtime in their own chunks, fetched only if this
+ *  path is actually taken. */
+function createLazyInThreadPredictor(): NmrPredictor {
   let loaded: Promise<NmrPredictor> | undefined;
   const load = (): Promise<NmrPredictor> =>
-    (loaded ??= import("./providers/ocl/OclHosePredictor").then((module) => new module.OclHosePredictor()));
+    (loaded ??= import("./providers/gnn/GnnShiftPredictor").then((module) => new module.GnnShiftPredictor()));
   return {
     getCapabilities: async () => (await load()).getCapabilities(),
     predict: async (request, signal) => (await load()).predict(request, signal)
@@ -46,7 +48,7 @@ function createLazyOclPredictor(): NmrPredictor {
 }
 
 const nestedClient = createNmrWorkerClient();
-const predictor: NmrPredictor = nestedClient ? createWorkerBackedPredictor(nestedClient) : createLazyOclPredictor();
+const predictor: NmrPredictor = nestedClient ? createWorkerBackedPredictor(nestedClient) : createLazyInThreadPredictor();
 const registration = createNmrRegistration({ predictor });
 
 runPluginWorker({

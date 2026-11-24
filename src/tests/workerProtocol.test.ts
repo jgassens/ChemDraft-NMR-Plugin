@@ -16,6 +16,16 @@ function collector() {
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+/** The default predictor resolves its GNN model asynchronously (real I/O, then the HOSE fallback in
+ *  Node, where the bundled model URL cannot be fetched), so wait for the response instead of one tick. */
+async function settled(responses: NmrWorkerResponse[], requestId: string, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!responses.some((response) => response.requestId === requestId && response.type !== "ready")) {
+    if (Date.now() > deadline) throw new Error(`no worker response for ${requestId}`);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 describe("createNmrWorkerHandler", () => {
   it("initializes and reports the provider capabilities", async () => {
     const { responses, post } = collector();
@@ -35,7 +45,7 @@ describe("createNmrWorkerHandler", () => {
       sourceFingerprint: FP,
       request: { structure: { format: "smiles", value: "c1ccccc1" }, nuclei: ["13C"], options: OPTIONS }
     });
-    await flush();
+    await settled(responses, "p1");
     const result = responses.find((response) => response.type === "result");
     expect(result).toBeDefined();
     expect(result && result.type === "result" && result.result.sourceFingerprint).toBe(FP);
@@ -46,7 +56,7 @@ describe("createNmrWorkerHandler", () => {
     const handle = createNmrWorkerHandler(post);
     const request = baseRequest();
     handle({ type: "predict", requestId: "p-derived", request, sourceFingerprint: "" });
-    await flush();
+    await settled(responses, "p-derived");
     const response = responses.find((candidate) => candidate.type === "result");
     expect(response && response.type === "result" ? response.result.sourceFingerprint : undefined).toBe(
       fingerprintStructureInput(request.structure)

@@ -1,0 +1,98 @@
+{
+  "abstention_md_sha256": "4b620ad5238771666186fdcdee8eca9c03d8f812faafa45fbb781b26e4c87d23",
+  "abstention_notes_sha256": "fa900be351fe048caf0cb45f66fa5a1a8686ad83b7fd331637f847d1ec06f2c0",
+  "atom_features_sha256": "e0973f8095a6b8f1b6b4b8762534c4e05594883234d37f0171f5475242998aa5",
+  "atoms": 706766,
+  "charge_states": {
+    "B": {
+      "-1:none": 11,
+      "0:none": 209
+    },
+    "Br": {
+      "-1:none": 5,
+      "0:none": 3841,
+      "1:none": 1
+    },
+    "C": {
+      "-1:none": 86,
+      "0:none": 528645
+    },
+    "Cl": {
+      "-1:none": 17,
+      "0:none": 7255
+    },
+    "F": {
+      "0:none": 7086
+    },
+    "I": {
+      "-1:none": 9,
+      "0:none": 1063,
+      "1:none": 29
+    },
+    "N": {
+      "-1:none": 244,
+      "0:none": 35066,
+      "1:none": 3773
+    },
+    "O": {
+      "-1:none": 3078,
+      "0:none": 106096,
+      "1:none": 40
+    },
+    "P": {
+      "0:none": 1076,
+      "1:none": 78
+    },
+    "S": {
+      "-1:none": 8,
+      "0:none": 7139,
+      "1:none": 44
+    },
+    "Se": {
+      "0:none": 340,
+      "1:none": 12
+    },
+    "Si": {
+      "0:none": 1155
+    },
+    "other": {
+      "0:none": 333,
+      "1:none": 27
+    }
+  },
+  "elements": {
+    "B": 220,
+    "Br": 3847,
+    "C": 528731,
+    "Cl": 7272,
+    "F": 7086,
+    "I": 1101,
+    "N": 39083,
+    "O": 109214,
+    "P": 1154,
+    "S": 7191,
+    "Se": 352,
+    "Si": 1155,
+    "other": 360
+  },
+  "heavy_atoms_p999": 103,
+  "molecules": 41482,
+  "population": "graph nodes of train-partition records with scored atoms (the training cache)",
+  "schema_version": "1",
+  "size_limit": 103,
+  "thresholds": {
+    "allowed_isotopes": [
+      "2H",
+      "13C"
+    ],
+    "charge_state_min": 20,
+    "domain_margin": 500,
+    "element_min": 50,
+    "percentile_method": "nearest rank",
+    "size_percentile": [
+      999,
+      1000
+    ],
+    "size_ui_limit": 500
+  }
+}

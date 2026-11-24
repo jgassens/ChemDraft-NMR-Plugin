@@ -85,6 +85,21 @@ describe("FixtureHosePredictor", () => {
     expect(warningCodes(result)).toContain("NMR_LABILE_PROTON_OMITTED");
   });
 
+  it("warns about the requested nucleus, not phosphorus, for ¹⁹F, and shows no shift", async () => {
+    const result = await predict("FC(F)(F)c1ccccc1", ["19F"]);
+    expect(result.resonances).toHaveLength(0);
+    expect(warningCodes(result)).not.toContain("NMR_PHOSPHORUS_DATABASE_NOT_INSTALLED");
+    const messages = result.warnings.map((warning) => warning.message).join(" ");
+    expect(messages).toContain("¹⁹F");
+    expect(messages).not.toContain("³¹P");
+  });
+
+  it("keeps the ³¹P database warning for ³¹P requests", async () => {
+    const result = await predict("CP(C)C", ["31P"]);
+    expect(result.resonances).toHaveLength(0);
+    expect(warningCodes(result)).toContain("NMR_PHOSPHORUS_DATABASE_NOT_INSTALLED");
+  });
+
   it("produces a partial result for a partially-covered molecule (ethylbenzene)", async () => {
     const result = await predict("CCc1ccccc1", ["13C"]);
     // meta/para aromatic carbons match shared codes; ipso/ortho/ethyl carbons do not.

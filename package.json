@@ -1,9 +1,74 @@
 {
   "name": "@chemdraft/plugin-nmr-predictor",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "type": "module",
   "license": "MIT",
-  "description": "ChemDraft NMR shift predictor plugin — 1H/13C HOSE-fragment prediction over NMRShiftDB2-derived statistics.",
+  "dataLicenses": [
+    {
+      "name": "NMRShiftDB2-derived HOSE shift statistics",
+      "attribution": "nmrshiftdb2 contributors, NMRShiftDB2 (nmrshiftdb2 Database License, derived from ODbL). Compiled into aggregated HOSE shift statistics by ChemDraft; no structures are included.",
+      "url": "https://sourceforge.net/projects/nmrshiftdb2/",
+      "path": "src/providers/ocl/nmrshiftdb2.database.json",
+      "license": "nmrshiftdb2 Database License (ODbL-derived)",
+      "noticeFile": "src/providers/ocl/NMRSHIFTDB2_LICENSE.md"
+    },
+    {
+      "name": "Ilm-NMR-P31-derived ³¹P HOSE shift statistics",
+      "attribution": "Geitner, R. (2026), Ilm-NMR-P31 v3.0, Zenodo, doi:10.5281/zenodo.20762603, CC BY 4.0 (BSD-3-Clause, copyright (c) 2026 Robert Geitner, kept for the GitHub copy). Includes data from NMRexp: Wang, J.-J. and Zhu, R. (2025), doi:10.5281/zenodo.17296666, CC BY 4.0. Filtered and transformed into aggregated HOSE shift statistics.",
+      "url": "https://doi.org/10.5281/zenodo.20762603",
+      "citation": "Ilm-NMR-P31 v3.0 (Zenodo, doi:10.5281/zenodo.20762603, CC BY 4.0); Hack et al. (2023), doi:10.1186/s13321-023-00792-y",
+      "repository": "https://github.com/clacor/Ilm-NMR-P31",
+      "commit": "ead6f914d2bdfb60e4befea72ea503d32978d358",
+      "path": "src/providers/ocl/ilm-nmr-p31.database.json",
+      "license": "CC-BY-4.0 (Ilm-NMR-P31 v3.0, doi:10.5281/zenodo.20762603); the GitHub copy's own license is BSD-3-Clause",
+      "copyright": "(c) 2026 Robert Geitner (BSD-3-Clause credit for the GitHub copy)",
+      "upstream": [
+        {
+          "name": "NMRexp",
+          "authors": "Wang, Jun-Jie; Zhu, Rong",
+          "citation": "Wang, J.-J., Jin, Y., Zhi, C.-Y. et al., Scientific Data 12, 1954 (2025), doi:10.1038/s41597-025-06245-5",
+          "doi": "10.5281/zenodo.17296666",
+          "license": "CC-BY-4.0",
+          "note": "the source of about 27,000 of the 43,317 entries in Ilm-NMR-P31 v3.0"
+        }
+      ],
+      "noticeFile": "src/providers/ocl/ILM_NMR_P31_LICENSE.md",
+      "note": "Built from GitHub clacor/Ilm-NMR-P31 @ ead6f914, identical in content to Ilm-NMR-P31 v3.0 on Zenodo (record 20762603, doi:10.5281/zenodo.20762603, series record 8260782, published 2026-06-19, CC BY 4.0). Values were filtered and transformed into aggregated HOSE shift statistics. Redistributed with the author's permission (owner, 2026-11-20)."
+    },
+    {
+      "name": "NMRShiftDB2-derived GNN shift model weights and training-domain counts",
+      "attribution": "nmrshiftdb2 contributors, NMRShiftDB2 (nmrshiftdb2 Database License, derived from ODbL). GNN model weights and training-domain counts fitted to NMRShiftDB2 assignments by ChemDraft; no structures are included.",
+      "url": "https://sourceforge.net/projects/nmrshiftdb2/",
+      "path": "src/providers/gnn/model",
+      "files": [
+        "src/providers/gnn/model/1H.fp16.onnx",
+        "src/providers/gnn/model/13C.fp16.onnx",
+        "src/providers/gnn/model/domain.json"
+      ],
+      "license": "nmrshiftdb2 Database License (ODbL-derived)",
+      "noticeFile": "src/providers/ocl/NMRSHIFTDB2_LICENSE.md"
+    },
+    {
+      "name": "NMRexp-derived ¹⁹F GNN model weights, training-domain counts and HOSE shift statistics",
+      "attribution": "Wang, Jun-Jie and Zhu, Rong, NMRexp (Zenodo, doi:10.5281/zenodo.17296666), licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/); dataset paper: Wang, J.-J., Jin, Y., Zhi, C.-Y. et al., Scientific Data 12, 1954 (2025), doi:10.1038/s41597-025-06245-5. Changes were made: the ¹⁹F rows were filtered (single fluorine environment, single peak), deduplicated, cleaned by an outlier rule and transformed into aggregated HOSE shift statistics and GNN model weights by ChemDraft; no structures are included. Not endorsed by the dataset authors. NMRShiftDB2 was used only as the test gate; it is not a source of the ¹⁹F model or table.",
+      "url": "https://doi.org/10.5281/zenodo.17296666",
+      "citation": "Wang, J.-J., Jin, Y., Zhi, C.-Y. et al., Scientific Data 12, 1954 (2025), doi:10.1038/s41597-025-06245-5",
+      "authors": "Wang, Jun-Jie; Zhu, Rong",
+      "doi": "10.5281/zenodo.17296666",
+      "path": "src/providers/gnn/model-19F",
+      "files": [
+        "src/providers/gnn/model-19F/19F.fp16.onnx",
+        "src/providers/gnn/model-19F/domain.json",
+        "src/providers/gnn/model-19F/hose-table.json"
+      ],
+      "license": "CC-BY-4.0",
+      "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+      "changes": "¹⁹F rows filtered (single fluorine environment, single peak), deduplicated, cleaned by the pre-registered outlier rule, and transformed into aggregated HOSE shift statistics and GNN model weights; no structures are included.",
+      "noticeFile": "src/providers/gnn/model-19F/NMREXP_LICENSE.md",
+      "note": "Trained and compiled under the pre-registered protocol docs/f19-benchmark.md (commit 7794cd9). NMRShiftDB2 was used only as the test gate; it is not a source of these files."
+    }
+  ],
+  "description": "ChemDraft NMR shift predictor plugin: a bundled graph neural network trained on NMRShiftDB2 assignments predicts 1H/13C shifts, with HOSE-fragment statistics from NMRShiftDB2 as cross-check and fallback; 31P statistics from Ilm-NMR-P31 v3.0.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jgassens/ChemDraft-NMR-Plugin.git"
@@ -13,11 +78,12 @@
     "url": "https://github.com/jgassens/ChemDraft-NMR-Plugin/issues"
   },
   "scripts": {
-    "package": "tsx tools/plugin-package/package.ts -- . --name nmr-predictor",
+    "package": "node --import tsx scripts/package.ts -- . --name nmr-predictor",
     "test": "vitest run"
   },
   "dependencies": {
     "@chemdraft/plugin-api": "file:./vendor/chemdraft-plugin-api-0.1.0.tgz",
+    "onnxruntime-web": "1.22.0",
     "openchemlib": "^9.22.1",
     "zod": "^3.25.76"
   },

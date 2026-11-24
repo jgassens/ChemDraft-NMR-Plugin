@@ -24,20 +24,58 @@ SOFTWARE.
 
 ## Scope: the MIT grant above covers this plugin's original code only
 
-Code licensing and data licensing are separate. This plugin ships a bundled data
-asset and depends on third-party software. Neither is relicensed by the grant
-above:
+The four bundled data assets and the third-party dependencies retain their own
+licenses.
 
-- **The bundled reference database** — `src/providers/ocl/nmrshiftdb2.database.json`,
-  and the built `assets/nmrWorker-*.js` chunk that embeds it — is a **derivative
-  database** under the **nmrshiftdb2 Database License** (ODbL-derived). It permits
-  use including commercial use, but carries **share-alike and attribution**
-  obligations that travel with any redistribution — including redistribution of a
-  packaged `.zip` of this plugin, which contains that database. See
-  `src/providers/ocl/NMRSHIFTDB2_LICENSE.md` for the provenance record and the
-  upstream license text, which governs.
+- **NMRShiftDB2-derived HOSE shift statistics** are a derivative database under
+  the **nmrshiftdb2 Database License (ODbL-derived)**. The source file is
+  `src/providers/ocl/nmrshiftdb2.database.json`. The package embeds the data in
+  `nmrWorker-*.js` and `GnnShiftPredictor-*.js` at the ZIP root. The license
+  permits commercial use and requires share-alike and attribution on
+  redistribution, including redistribution of the plugin ZIP. See
+  `src/providers/ocl/NMRSHIFTDB2_LICENSE.md` for provenance and the license text.
 
-- **Third-party dependencies** — openchemlib (BSD-3-Clause), zod (MIT) — remain
+- **NMRShiftDB2-derived GNN shift model weights and training-domain counts**
+  are offered under the same **nmrshiftdb2 Database License (ODbL-derived)**,
+  not under MIT. The source files are `src/providers/gnn/model/1H.fp16.onnx`,
+  `src/providers/gnn/model/13C.fp16.onnx` and `src/providers/gnn/model/domain.json`.
+  The package ships the weights as `1H.fp16-*.onnx` and `13C.fp16-*.onnx` at the
+  ZIP root and embeds the domain counts in `nmrWorker-*.js` and
+  `GnnShiftPredictor-*.js`. See `src/providers/ocl/NMRSHIFTDB2_LICENSE.md`.
+
+- **Ilm-NMR-P31-derived ³¹P HOSE shift statistics** are derived from Ilm-NMR-P31
+  v3.0 (Zenodo DOI 10.5281/zenodo.20762603), which is licensed under
+  **CC BY 4.0** (https://creativecommons.org/licenses/by/4.0/). About 27,000 of
+  its 43,317 entries come from NMRexp (Wang and Zhu, Zenodo DOI
+  10.5281/zenodo.17296666, **CC BY 4.0**). The values were filtered and
+  transformed into aggregated HOSE statistics. The GitHub copy the table was
+  built from carries a **BSD-3-Clause** license, copyright (c) 2026 Robert
+  Geitner, and that credit is kept; the data is redistributed with the author's
+  permission (owner, 2026-11-20). The source file is
+  `src/providers/ocl/ilm-nmr-p31.database.json`. The package embeds the data in
+  `nmrWorker-*.js` and `GnnShiftPredictor-*.js` at the ZIP root. See
+  `src/providers/ocl/ILM_NMR_P31_LICENSE.md` for the attribution and license text.
+
+- **NMRexp-derived ¹⁹F GNN model weights, training-domain counts and HOSE
+  shift statistics** are derived from NMRexp (Wang, Jun-Jie and Zhu, Rong,
+  Zenodo DOI 10.5281/zenodo.17296666; dataset paper: Wang, J.-J., Jin, Y.,
+  Zhi, C.-Y. et al., Scientific Data 12, 1954 (2025),
+  DOI 10.1038/s41597-025-06245-5), which is licensed under **CC BY 4.0**
+  (https://creativecommons.org/licenses/by/4.0/). They are offered under
+  CC BY 4.0, not under MIT and not under the nmrshiftdb2 Database License.
+  Changes were made: the ¹⁹F rows were filtered (single fluorine environment,
+  single peak), deduplicated, cleaned by an outlier rule and transformed into
+  aggregated HOSE shift statistics and GNN model weights by ChemDraft; no
+  structures are included. Not endorsed by the dataset authors. NMRShiftDB2
+  was used only to test the ¹⁹F model; it is not a source of these files. The
+  source files are `src/providers/gnn/model-19F/19F.fp16.onnx`,
+  `src/providers/gnn/model-19F/domain.json` and
+  `src/providers/gnn/model-19F/hose-table.json`. See
+  `src/providers/gnn/model-19F/NMREXP_LICENSE.md`.
+
+- **Third-party dependencies** — openchemlib (BSD-3-Clause), zod (MIT),
+  onnxruntime-web 1.22.0 (MIT, Microsoft; shipped as `ort.wasm.bundle.min-*.js`,
+  `ort-wasm-simd-threaded-*.mjs` and `ort-wasm-simd-threaded-*.wasm`) — remain
   under their own terms. See `THIRD_PARTY_NOTICES.md`.
 
 Nothing in the MIT grant above conveys any right to those materials beyond their

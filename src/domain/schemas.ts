@@ -6,7 +6,7 @@
  */
 import { z } from "zod";
 
-export const NmrNucleusSchema = z.enum(["1H", "13C"]);
+export const NmrNucleusSchema = z.enum(["1H", "13C", "31P", "19F"]);
 
 export const ChemicalStructureInputSchema = z.object({
   format: z.enum(["smiles", "molfile-v2000", "molfile-v3000"]),
@@ -61,6 +61,7 @@ const NmrPredictionUncertaintySchema = z.object({
 const NmrCouplingSchema = z.object({
   jHz: z.number(),
   partnerCount: z.number(),
+  partnerNucleus: z.literal("2H").optional(),
   kind: z.enum(["vicinal", "aromatic-ortho", "aromatic-meta", "aldehyde", "other"]),
   toAtomIndex: z.number().optional()
 });
@@ -73,6 +74,18 @@ const NmrMultipletSchema = z.object({
 const NmrResonanceSchema = z.object({
   id: z.string(),
   nucleus: NmrNucleusSchema,
+  source: z.enum(["lookup", "rule-estimate", "model"]).optional(),
+  method: z.enum(["GNN prediction", "HOSE lookup"]).optional(),
+  tier: z.enum(["high", "medium", "low"]).optional(),
+  reference: z.object({
+    method: z.literal("HOSE lookup"),
+    deltaPpm: z.number(),
+    matchedSphere: z.number(),
+    sampleCount: z.number(),
+    environmentCode: z.string().optional()
+  }).optional(),
+  disagreesWithReference: z.boolean().optional(),
+  modelDeclines: z.array(z.string()).optional(),
   deltaPpm: z.number(),
   atomRefs: z.array(NmrAtomReferenceSchema),
   equivalentNuclei: z.number().optional(),
@@ -88,15 +101,36 @@ const NmrResonanceSchema = z.object({
   flags: z.array(z.string())
 });
 
-const NmrPredictionBackendSchema = z.object({
-  id: z.string(),
+const NmrReferenceDatabaseSchema = z.object({
   version: z.string(),
   dataVersion: z.string().optional(),
-  method: z.string(),
   license: z.string().optional(),
   attribution: z.string().optional(),
   source: z.string().optional(),
   dataChecksum: z.string().optional()
+});
+
+const NmrPredictionModelSchema = z.object({
+  id: z.string(),
+  version: z.string(),
+  nuclei: z.array(NmrNucleusSchema),
+  trainingData: z.string(),
+  dataLicense: z.string()
+});
+
+const NmrPredictionBackendSchema = z.object({
+  id: z.string(),
+  version: NmrReferenceDatabaseSchema.shape.version,
+  dataVersion: NmrReferenceDatabaseSchema.shape.dataVersion,
+  method: z.string(),
+  license: NmrReferenceDatabaseSchema.shape.license,
+  attribution: NmrReferenceDatabaseSchema.shape.attribution,
+  source: NmrReferenceDatabaseSchema.shape.source,
+  dataChecksum: NmrReferenceDatabaseSchema.shape.dataChecksum,
+  phosphorusDatabase: NmrReferenceDatabaseSchema.optional(),
+  model: NmrPredictionModelSchema.optional(),
+  fluorineDatabase: NmrReferenceDatabaseSchema.optional(),
+  fluorineModel: NmrPredictionModelSchema.optional()
 });
 
 const NmrPredictionWarningSchema = z.object({
@@ -108,7 +142,15 @@ const NmrPredictionWarningSchema = z.object({
 });
 
 const NmrStructureDepictionSchema = z.object({
-  atoms: z.array(z.object({ index: z.number(), x: z.number(), y: z.number(), element: z.string() })),
+  atoms: z.array(z.object({
+    index: z.number(),
+    x: z.number(),
+    y: z.number(),
+    element: z.string(),
+    charge: z.number().optional(),
+    radical: z.enum(["singlet", "doublet", "triplet"]).optional(),
+    isotopeMass: z.number().optional()
+  })),
   bonds: z.array(z.object({ from: z.number(), to: z.number(), order: z.number() }))
 });
 

@@ -9,15 +9,18 @@ import type {
   NmrPredictionResult,
   NmrPredictor,
   NmrPredictorCapabilities,
+  NmrReferenceDatabase,
   NmrResonance
 } from "../../domain/contracts";
 import { PROTON_HIGH_DISPERSION_CROSS_CHECK_PPM } from "../../domain/contracts";
 import { NmrError, NmrErrorCodes } from "../../domain/errors";
 import { fingerprintStructureInput } from "../../domain/fingerprint";
 import { nmrWarning, NmrWarningCodes, type NmrPredictionWarning } from "../../domain/warnings";
+import { nucleusLabel } from "../../domain/nucleusLabel";
 import { normalizeStructure } from "../../application/normalizeStructure";
 import { computeMultiplet, reportedProtonCouplingHz } from "./coupling";
 import { MAX_SPHERES } from "./environmentCode";
+import { attachedDeuteriumAtoms, isDeuterium, protonCount } from "./hydrogenIsotopes";
 import { estimateCarbonShiftWithApplicability } from "./functionalGroupFallback";
 import { estimateProtonIncrement } from "./incrementEstimator";
 import type { CompiledNmrDatabase, NmrDatabaseEntry, NmrDatabaseProvenance } from "./localDatabase";
@@ -29,6 +32,7 @@ import {
   type ProductionLookupContext
 } from "./productionLookup";
 import { buildStructureDepiction } from "./structureDepiction";
+import bundledPhosphorusDatabase from "./ilm-nmr-p31.database.json";
 import bundledDatabase from "./nmrshiftdb2.database.json";
 
 const SMALL_POPULATION_THRESHOLD = 3;
@@ -36,6 +40,8 @@ const LABILE_HYDROGEN_HOSTS = new Set([7, 8, 16]);
 
 export interface OclHosePredictorOptions {
   database?: CompiledNmrDatabase;
+  /** Overrides the bundled ³¹P table. Pass null to run without a ³¹P table. */
+  phosphorusDatabase?: CompiledNmrDatabase | null;
   now?: () => string;
 }
 
@@ -47,17 +53,20 @@ interface PredictionCounts {
 type Statistic = NmrPredictionOptions["statistic"];
 
 /**
- * Experimentally-grounded predictor: derive local OCL environments, search the bundled HOSE database
- * deepest-first, and disclose thin matches. A rule estimate is emitted only when its estimator says
- * the chemistry is applicable; otherwise the unsupported unmatched environment is omitted with a
- * stable warning. All output remains serializable worker/store data.
+ * Derive local OCL environments, search the bundled HOSE tables deepest-first, and disclose thin
+ * matches. For ¹H and ¹³C, unmatched environments can use applicable rule estimates. A stable
+ * warning identifies omitted environments. All output remains serializable worker/store data.
  */
 export class OclHosePredictor implements NmrPredictor {
   private readonly database: CompiledNmrDatabase;
+  private readonly phosphorusDatabase: CompiledNmrDatabase | null;
   private readonly now: () => string;
 
   constructor(options: OclHosePredictorOptions = {}) {
     this.database = options.database ?? (bundledDatabase as unknown as CompiledNmrDatabase);
+    this.phosphorusDatabase = options.phosphorusDatabase === undefined
+      ? (bundledPhosphorusDatabase as unknown as CompiledNmrDatabase)
+      : options.phosphorusDatabase;
     this.now = options.now ?? (() => new Date().toISOString());
   }
 
@@ -70,7 +79,9 @@ export class OclHosePredictor implements NmrPredictor {
       id: "chemdraft.ocl-hose",
       version: this.database.provenance.version,
       execution: "worker-js",
-      nuclei: this.database.provenance.nuclei,
+      nuclei: this.phosphorusDatabase
+        ? dedupeNuclei([...this.database.provenance.nuclei, "31P"])
+        : this.database.provenance.nuclei.filter((nucleus) => nucleus !== "31P"),
       supportsAtomAssignments: true,
       supportsUncertainty: true,
       supportsCouplings: true,
@@ -95,6 +106,19 @@ export class OclHosePredictor implements NmrPredictor {
     const totals: PredictionCounts = { estimated: 0, omitted: 0 };
     const lookupContext = prepareProductionLookup(molecule, maxSpheres);
     const nuclei = dedupeNuclei(request.nuclei);
+    const deuteratedCarbons: number[] = [];
+    for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
+      if (molecule.getAtomicNo(atom) === 6 && attachedDeuteriumAtoms(molecule, atom).length > 0) {
+        deuteratedCarbons.push(atom);
+      }
+    }
+    if (nuclei.includes("13C") && deuteratedCarbons.length > 0) {
+      warnings.push(nmrWarning(
+        NmrWarningCodes.CarbonDeuteriumSplittingNotModelled,
+        `¹³C peaks on carbons carrying D use hydrogen-matched environments; C–D splitting and isotope shifts are not modelled at carbon atoms ${deuteratedCarbons.join(", ")} (zero-based).`,
+        { atomIndices: deuteratedCarbons }
+      ));
+    }
     const hydrogenDiastereotopy = nuclei.includes("1H")
       ? runDisclosureCheck(warnings, "stereochemical", () =>
           componentLocalHydrogenDiastereotopy(molecule)
@@ -110,79 +134,66 @@ export class OclHosePredictor implements NmrPredictor {
         details: { check: "diastereotopic-hydrogen", partial: true }
       });
     }
-    let heavyAtomDiastereotopicIds: readonly (string | undefined)[] | undefined;
-    let heavyAtomDiastereotopyAttempted = false;
+    const disclosureState: ResonanceDisclosureState = { heavyAtomDiastereotopyAttempted: false };
+    let omittedPhosphorus = 0;
 
     for (const nucleus of nuclei) {
       throwIfAborted(signal);
+      // This engine has no ¹⁹F table (its capabilities do not list ¹⁹F); the GNN-first predictor
+      // handles ¹⁹F with its own NMRexp table and never passes it here.
+      if (nucleus === "19F") continue;
       const resonanceStart = resonances.length;
-      const counts =
-        nucleus === "13C"
-          ? predictCarbon(
-              this.database,
-              molecule,
-              lookupContext,
-              request.options.statistic,
-              resonances,
-              warnings
-            )
-          : predictProton(
-              this.database,
-              molecule,
-              lookupContext,
-              request,
-              resonances,
-              warnings,
-              hydrogenDiastereotopy
-            );
-      totals.estimated += counts.estimated;
-      totals.omitted += counts.omitted;
-      const nucleusResonances = resonances.slice(resonanceStart);
-      const specificallyWarnedMethylAtoms =
-        runDisclosureCheck(warnings, "potentially diastereotopic methyl", () =>
-          warnPotentiallyDiastereotopicMethyls(molecule, nucleus, nucleusResonances, warnings)
-        ) ?? new Set<number>();
-      if (
-        !heavyAtomDiastereotopyAttempted &&
-        nucleusResonances.some((resonance) => resonance.atomRefs.length > 1)
-      ) {
-        heavyAtomDiastereotopyAttempted = true;
-        heavyAtomDiastereotopicIds = runDisclosureCheck(
-          warnings,
-          "stereochemically merged class",
-          () => componentLocalHeavyAtomDiastereotopicIds(molecule)
+      if (nucleus === "31P") {
+        if (!this.phosphorusDatabase) {
+          warnings.push(nmrWarning(NmrWarningCodes.PhosphorusDatabaseNotInstalled, "³¹P database not installed"));
+          continue;
+        }
+        omittedPhosphorus = predictPhosphorus(
+          this.phosphorusDatabase, lookupContext, request.options.statistic, resonances, warnings
         );
+      } else {
+        const counts =
+          nucleus === "13C"
+            ? predictCarbon(
+                this.database,
+                molecule,
+                lookupContext,
+                request.options.statistic,
+                resonances,
+                warnings
+              )
+            : predictProton(
+                this.database,
+                molecule,
+                lookupContext,
+                request,
+                resonances,
+                warnings,
+                hydrogenDiastereotopy
+              );
+        totals.estimated += counts.estimated;
+        totals.omitted += counts.omitted;
       }
-      if (heavyAtomDiastereotopicIds) {
-        runDisclosureCheck(warnings, "stereochemically merged class", () =>
-          warnStereochemicallyDistinctMergedClasses(
-            molecule,
-            nucleus,
-            nucleusResonances,
-            specificallyWarnedMethylAtoms,
-            warnings,
-            heavyAtomDiastereotopicIds
-          )
-        );
-      }
-      if (nucleus === "1H") {
-        runDisclosureCheck(warnings, "magnetic-equivalence", () =>
-          warnLikelySecondOrderPatterns(
-            molecule,
-            nucleusResonances,
-            warnings,
-            request.options.ignoreLabileHydrogens
-          )
-        );
-      }
+      discloseResonanceLimitations(
+        molecule, nucleus, resonances.slice(resonanceStart), warnings, request.options.ignoreLabileHydrogens, disclosureState
+      );
     }
 
     if (totals.estimated > 0) {
+      const estimates = resonances.filter((resonance) => resonance.source === "rule-estimate");
+      const estimateAtoms = (values: readonly NmrResonance[]): number[] =>
+        [...new Set(values.flatMap((resonance) => resonance.atomRefs.map((ref) => ref.sourceAtomIndex)))]
+          .sort((a, b) => a - b);
+      const atomIndices = estimateAtoms(estimates);
+      const atomLists = nuclei.flatMap((nucleus) => {
+        const atoms = estimateAtoms(estimates.filter((resonance) => resonance.nucleus === nucleus));
+        return atoms.length ? [`${nucleusLabel(nucleus)} ${nucleus === "1H" ? "host atoms" : "atoms"} ${atoms.join(", ")}`] : [];
+      });
       warnings.push(
         nmrWarning(
           NmrWarningCodes.RuleEstimated,
-          `${totals.estimated} resonance(s) had no database match and are shown as disclosed rule estimates (low confidence).`,
-          { severity: "warning" }
+          `${totals.estimated} resonance(s) had no database match and are shown as rule estimates (est.): ${atomLists.join("; ")}. Atom indices are zero-based; ¹H indices identify the host atom.`,
+          { severity: "warning", atomIndices }
         )
       );
     }
@@ -195,25 +206,197 @@ export class OclHosePredictor implements NmrPredictor {
         )
       );
     }
+    if (omittedPhosphorus > 0 && resonances.length > 0) {
+      warnings.push(nmrWarning(
+        NmrWarningCodes.PartialPrediction,
+        `${omittedPhosphorus} phosphorus atom(s) were omitted because no ³¹P database environment matched.`,
+        { details: { omittedEnvironmentCount: omittedPhosphorus, nucleus: "31P" } }
+      ));
+    }
+
+    const phosphorusOnly = nuclei.length === 1 && nuclei[0] === "31P";
+    const phosphorusProvenance = nuclei.includes("31P") ? this.phosphorusDatabase?.provenance : undefined;
+    const primary = phosphorusOnly ? phosphorusProvenance : this.database.provenance;
+    const { version, dataVersion, ...databaseDetails } = primary
+      ? referenceDatabase(primary)
+      : { version: this.database.provenance.version, dataVersion: undefined };
 
     return {
       schemaVersion: "1",
       sourceFingerprint: request.sourceFingerprint || fingerprintStructureInput(request.structure),
       backend: {
         id: "chemdraft.ocl-hose",
-        version: this.database.provenance.version,
-        dataVersion: this.database.provenance.name,
+        version,
+        ...(dataVersion === undefined ? {} : { dataVersion }),
         method: "hose-fragment",
-        license: this.database.provenance.license,
-        attribution: this.database.provenance.attribution,
-        source: this.database.provenance.source,
-        ...(this.database.provenance.inputSha256 ? { dataChecksum: this.database.provenance.inputSha256 } : {})
+        ...databaseDetails,
+        ...(!phosphorusOnly && phosphorusProvenance ? { phosphorusDatabase: referenceDatabase(phosphorusProvenance) } : {})
       },
       resonances,
       warnings,
       generatedAt: this.now(),
       depiction: buildStructureDepiction(molecule)
     };
+  }
+}
+
+/** Per-prediction cache for `discloseResonanceLimitations`: the heavy-atom diastereotopic IDs are
+ * computed at most once, the first time a multi-atom class is shown. */
+export interface ResonanceDisclosureState {
+  heavyAtomDiastereotopyAttempted: boolean;
+  heavyAtomDiastereotopicIds?: readonly (string | undefined)[];
+}
+
+/** The limitation checks for one nucleus's shown resonances: diastereotopic methyl pairs and
+ * stereochemically merged classes, and for ¹H omitted H–D coupling and likely second-order patterns.
+ * Every check is per resonance, so a caller may run it on any subset of what it shows (the GNN
+ * predictor runs it on the classes it adds beyond the HOSE engine's). */
+export function discloseResonanceLimitations(
+  molecule: OCL.Molecule,
+  nucleus: NmrNucleus,
+  nucleusResonances: readonly NmrResonance[],
+  warnings: NmrPredictionWarning[],
+  ignoreLabileHydrogens: boolean,
+  state: ResonanceDisclosureState = { heavyAtomDiastereotopyAttempted: false }
+): void {
+  const specificallyWarnedMethylAtoms =
+    nucleus === "31P"
+      ? new Set<number>()
+      : runDisclosureCheck(warnings, "potentially diastereotopic methyl", () =>
+          warnPotentiallyDiastereotopicMethyls(molecule, nucleus, nucleusResonances, warnings)
+        ) ?? new Set<number>();
+  if (
+    !state.heavyAtomDiastereotopyAttempted &&
+    nucleusResonances.some((resonance) => resonance.atomRefs.length > 1)
+  ) {
+    state.heavyAtomDiastereotopyAttempted = true;
+    state.heavyAtomDiastereotopicIds = runDisclosureCheck(
+      warnings,
+      "stereochemically merged class",
+      () => componentLocalHeavyAtomDiastereotopicIds(molecule)
+    );
+  }
+  const heavyAtomDiastereotopicIds = state.heavyAtomDiastereotopicIds;
+  if (heavyAtomDiastereotopicIds) {
+    runDisclosureCheck(warnings, "stereochemically merged class", () =>
+      warnStereochemicallyDistinctMergedClasses(
+        molecule,
+        nucleus,
+        nucleusResonances,
+        specificallyWarnedMethylAtoms,
+        warnings,
+        heavyAtomDiastereotopicIds
+      )
+    );
+  }
+  if (nucleus === "1H") {
+    warnUnmodelledDeuteriumCoupling(molecule, nucleusResonances, warnings);
+    warnLongRangeDeuteriumCoupling(molecule, nucleusResonances, warnings);
+    runDisclosureCheck(warnings, "magnetic-equivalence", () =>
+      warnLikelySecondOrderPatterns(molecule, nucleusResonances, warnings, ignoreLabileHydrogens)
+    );
+  }
+}
+
+function referenceDatabase(provenance: NmrDatabaseProvenance): NmrReferenceDatabase {
+  return {
+    version: provenance.version,
+    dataVersion: provenance.name,
+    license: provenance.license,
+    attribution: provenance.attribution,
+    source: provenance.source,
+    ...(provenance.inputSha256 ? { dataChecksum: provenance.inputSha256 } : {})
+  };
+}
+
+function predictPhosphorus(
+  database: CompiledNmrDatabase,
+  lookupContext: ProductionLookupContext,
+  statistic: Statistic,
+  resonances: NmrResonance[],
+  warnings: NmrPredictionWarning[]
+): number {
+  let omitted = 0;
+  for (const atoms of lookupContext.phosphorusClasses) {
+    const { match, codes } = lookupProductionEnvironment(database, lookupContext, "31P", atoms[0]);
+    if (match) {
+      resonances.push(buildResonance(
+        "31P", match, statistic, atoms, atoms.length, atoms.map(() => ({ element: "P", count: 1 })), warnings
+      ));
+    } else {
+      omitted += atoms.length;
+      warnings.push(nmrWarning(
+        NmrWarningCodes.NoFragmentMatch,
+        `No ³¹P database match for atom${atoms.length === 1 ? "" : "s"} ${atoms.join(", ")}; the resonance was omitted.`,
+        { atomIndices: [...atoms], details: { nucleus: "31P", environmentCode: codes[0] } }
+      ));
+    }
+  }
+  return omitted;
+}
+
+/** Disclose geminal and heteroatom vicinal paths, which the H–D estimator omits.
+ * Carbon–carbon vicinal paths are computed and shown. Only emitted proton environments are
+ * affected; longer-range paths are outside this check. */
+function warnUnmodelledDeuteriumCoupling(
+  molecule: OCL.Molecule,
+  resonances: readonly NmrResonance[],
+  warnings: NmrPredictionWarning[]
+): void {
+  const atomIndices = [...new Set(resonances.flatMap((resonance) =>
+    resonance.atomRefs.map((ref) => ref.sourceAtomIndex)
+  ))].filter((host) => {
+    if (protonCount(molecule, host) === 0) return false;
+    if (attachedDeuteriumAtoms(molecule, host).length > 0) return true;
+    for (let connection = 0; connection < molecule.getConnAtoms(host); connection += 1) {
+      const neighbor = molecule.getConnAtom(host, connection);
+      if (
+        molecule.getAtomicNo(neighbor) !== 1 &&
+        attachedDeuteriumAtoms(molecule, neighbor).length > 0 &&
+        (molecule.getAtomicNo(host) !== 6 || molecule.getAtomicNo(neighbor) !== 6)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }).sort((a, b) => a - b);
+  if (atomIndices.length > 0) {
+    warnings.push(nmrWarning(
+      NmrWarningCodes.DeuteriumCouplingNotShown,
+      `H–D coupling not shown for proton host atoms ${atomIndices.join(", ")} (zero-based): geminal paths and vicinal paths involving heteroatoms are omitted. Carbon–carbon vicinal H–D coupling is shown where present.`,
+      { atomIndices }
+    ));
+  }
+}
+
+/** Disclose D four or five bonds from a shown proton (H–A–X–B–D and H–A–X–Y–B–D: aromatic meta
+ * and para, and other long-range paths). coupling.ts computes H–D only over C–C vicinal paths, so these
+ * are absent from every shown multiplet even where the H–H analogue (aromatic meta) is shown.
+ * Paths of six or more bonds are not disclosed. */
+function warnLongRangeDeuteriumCoupling(
+  molecule: OCL.Molecule,
+  resonances: readonly NmrResonance[],
+  warnings: NmrPredictionWarning[]
+): void {
+  const deuteriumHosts: number[] = [];
+  for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
+    if (isDeuterium(molecule, atom) && molecule.getAllConnAtoms(atom) > 0) {
+      deuteriumHosts.push(molecule.getConnAtom(atom, 0));
+    }
+  }
+  if (deuteriumHosts.length === 0) return;
+  const atomIndices = [...new Set(resonances.flatMap((resonance) =>
+    resonance.atomRefs.map((ref) => ref.sourceAtomIndex)
+  ))].filter((host) => protonCount(molecule, host) > 0 && deuteriumHosts.some((deuteriumHost) => {
+    const bonds = molecule.getPathLength(host, deuteriumHost);
+    return bonds === 2 || bonds === 3;
+  })).sort((a, b) => a - b);
+  if (atomIndices.length > 0) {
+    warnings.push(nmrWarning(
+      NmrWarningCodes.DeuteriumLongRangeCouplingNotShown,
+      `Long-range H–D coupling not shown for proton host atoms ${atomIndices.join(", ")} (zero-based): D sits four or five bonds away (for example aromatic meta or para). This model computes H–D coupling only over three bonds between carbons, so the multiplet omits these small splittings, which can broaden the lines.`,
+      { atomIndices }
+    ));
   }
 }
 
@@ -249,7 +432,7 @@ function predictCarbon(
     }
 
     const code = codes[codes.length - 1];
-    const estimate = estimateCarbonShiftWithApplicability(molecule, representative);
+    const estimate = estimateCarbonShiftWithApplicability(lookupContext._shiftMolecule, lookupContext._inputToShift[representative]);
     if (!estimate.applicable) {
       omitted += atoms.length;
       warnOmitted(warnings, "13C", atoms, code, estimate.reason);
@@ -305,7 +488,7 @@ function predictProton(
   for (const atoms of lookupContext.protonClasses) {
     const lookup = lookupProductionEnvironment(database, lookupContext, "1H", atoms[0]);
     const representative = lookup.representativeAtom;
-    const protonCounts = atoms.map((atom) => molecule.getAllHydrogens(atom));
+    const protonCounts = atoms.map((atom) => protonCount(molecule, atom));
     if (
       LABILE_HYDROGEN_HOSTS.has(molecule.getAtomicNo(representative)) &&
       request.options.ignoreLabileHydrogens
@@ -322,7 +505,7 @@ function predictProton(
         atoms,
         request.options.ignoreLabileHydrogens
       );
-      const crossCheck = protonCrossCheck(molecule, representative, found.entry, request.options.statistic);
+      const crossCheck = protonCrossCheck(lookupContext._shiftMolecule, lookupContext._inputToShift[representative], found.entry, request.options.statistic);
       resonances.push(
         buildResonance(
           "1H",
@@ -340,7 +523,7 @@ function predictProton(
     }
 
     const code = codes[codes.length - 1];
-    const estimate = estimateProtonIncrement(molecule, representative);
+    const estimate = estimateProtonIncrement(lookupContext._shiftMolecule, lookupContext._inputToShift[representative]);
     if (!estimate.applicable) {
       omitted += atoms.length;
       warnOmitted(warnings, "1H", atoms, code, estimate.reason);
@@ -447,7 +630,7 @@ function warnPotentiallyDiastereotopicMethyls(
     const methylNeighbors: number[] = [];
     for (let connection = 0; connection < molecule.getConnAtoms(atom); connection += 1) {
       const neighbor = molecule.getConnAtom(atom, connection);
-      if (molecule.getAtomicNo(neighbor) === 6 && molecule.getAllHydrogens(neighbor) === 3) {
+      if (molecule.getAtomicNo(neighbor) === 6 && protonCount(molecule, neighbor) === 3) {
         methylNeighbors.push(neighbor);
       }
     }
@@ -505,7 +688,7 @@ function warnStereochemicallyDistinctMergedClasses(
   warnings.push(
     nmrWarning(
       NmrWarningCodes.StereoNonequivalentMerged,
-      `${formatAtoms(molecule, atomIndices)} are stereochemically distinct members of ${mergedClassCount} constitutionally merged ${nucleus} class(es). These atoms may give separate signals; this model reports one shift for each merged class and does not predict separate values.`,
+      `${formatAtoms(molecule, atomIndices)} are stereochemically distinct members of ${mergedClassCount} constitutionally merged ${nucleusLabel(nucleus)} class(es). These atoms may give separate signals; this model reports one shift for each merged class and does not predict separate values.`,
       {
         severity: "info",
         atomIndices,
@@ -536,7 +719,7 @@ function componentLocalHydrogenDiastereotopy(
   const componentByAtom = connectedComponentNumbers(molecule);
   const candidateComponents = new Set<number>();
   for (let atom = 0; atom < atomCount; atom += 1) {
-    if (molecule.getAtomicNo(atom) === 6 && molecule.getAllHydrogens(atom) === 2) {
+    if (molecule.getAtomicNo(atom) === 6 && protonCount(molecule, atom) === 2) {
       candidateComponents.add(componentByAtom[atom]);
     }
   }
@@ -561,11 +744,11 @@ function componentLocalHydrogenDiastereotopy(
     for (let atom = 0; atom < atomCount; atom += 1) {
       if (!includedAtoms[atom]) continue;
       const componentAtom = inputToComponent[atom];
-      if (molecule.getAtomicNo(atom) !== 6 || molecule.getAllHydrogens(atom) !== 2) continue;
+      if (molecule.getAtomicNo(atom) !== 6 || protonCount(molecule, atom) !== 2) continue;
       const hydrogenIds: string[] = [];
       for (let connection = 0; connection < component.getAllConnAtoms(componentAtom); connection += 1) {
         const neighbor = component.getConnAtom(componentAtom, connection);
-        if (component.getAtomicNo(neighbor) !== 1) continue;
+        if (component.getAtomicNo(neighbor) !== 1 || isDeuterium(component, neighbor)) continue;
         const hydrogenId = componentIds[neighbor];
         if (hydrogenId === undefined) {
           throw new Error(`OpenChemLib did not return an ID for a hydrogen on mapped atom ${atom}.`);
@@ -741,7 +924,7 @@ function protonSpinSystems(
   const protonHosts = Array.from({ length: molecule.getAllAtoms() }, (_, atom) => atom).filter(
     (atom) =>
       molecule.getAtomicNo(atom) !== 1 &&
-      molecule.getAllHydrogens(atom) > 0 &&
+      protonCount(molecule, atom) > 0 &&
       (!ignoreLabileHydrogens || !LABILE_HYDROGEN_HOSTS.has(molecule.getAtomicNo(atom)))
   );
   const spinSystemByHost = new Map<number, number>();
@@ -839,7 +1022,7 @@ function buildResonance(
     warnings.push(
       nmrWarning(
         NmrWarningCodes.SmallReferencePopulation,
-        `Only ${entry.n} reference shift(s) for ${nucleus} ${deltaPpm} ppm.`,
+        `Only ${entry.n} reference shift(s) for ${nucleusLabel(nucleus)} ${deltaPpm} ppm.`,
         { severity: "info", atomIndices: [...atoms] }
       )
     );
@@ -848,15 +1031,16 @@ function buildResonance(
     warnings.push(
       nmrWarning(
         NmrWarningCodes.LowHoseSphereMatch,
-        `${nucleus} ${deltaPpm} ppm matched only a 1-sphere environment; confidence is low.`,
+        `${nucleusLabel(nucleus)} ${deltaPpm} ppm matched only a 1-sphere environment; confidence is low.`,
         { severity: "info", atomIndices: [...atoms] }
       )
     );
   }
 
   return {
-    id: `${nucleus === "13C" ? "c" : "h"}-${Math.min(...atoms)}`,
+    id: `${nucleus === "31P" ? "p" : nucleus === "13C" ? "c" : "h"}-${Math.min(...atoms)}`,
     nucleus,
+    source: "lookup",
     deltaPpm,
     atomRefs: atoms.map((atom, index) => ({
       sourceAtomIndex: atom,
@@ -873,7 +1057,7 @@ function buildResonance(
 }
 
 function buildEstimatedResonance(
-  nucleus: NmrNucleus,
+  nucleus: "1H" | "13C",
   atoms: readonly number[],
   equivalentNuclei: number,
   refs: readonly { element: string; count: number }[],
@@ -885,6 +1069,7 @@ function buildEstimatedResonance(
   const resonance: NmrResonance = {
     id: `${nucleus === "13C" ? "c" : "h"}-est-${Math.min(...atoms)}`,
     nucleus,
+    source: "rule-estimate",
     deltaPpm: round2(shift),
     atomRefs: atoms.map((atom, index) => ({
       sourceAtomIndex: atom,
@@ -909,7 +1094,7 @@ function warnOmitted(
   warnings.push(
     nmrWarning(
       NmrWarningCodes.NoFragmentMatch,
-      `No ${nucleus} database match or applicable rule estimate for atom${atoms.length === 1 ? "" : "s"} ${atoms.join(
+      `No ${nucleusLabel(nucleus)} database match or applicable rule estimate for atom${atoms.length === 1 ? "" : "s"} ${atoms.join(
         ", "
       )}; the resonance was omitted (${reason}).`,
       {

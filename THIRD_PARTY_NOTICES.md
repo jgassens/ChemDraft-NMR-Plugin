@@ -9,28 +9,103 @@
   second OCL runtime.
 - **zod** (MIT) — runtime validation of the serializable prediction request/result.
 - **@chemdraft/plugin-api** (workspace) — the generic plugin contracts.
+- **onnxruntime-web 1.22.0** (MIT, Copyright (c) Microsoft Corporation) — runs the
+  bundled GNN models on its single-threaded WebAssembly backend inside the plugin
+  worker. The package ships its JavaScript (`ort.wasm.bundle.min-*.js`, which
+  includes `onnxruntime-common` 1.22.0, MIT, Microsoft), its WebAssembly loader
+  module (`ort-wasm-simd-threaded-*.mjs`) and its WebAssembly binary
+  (`ort-wasm-simd-threaded-*.wasm`), all unmodified. The WebAssembly binary is
+  ONNX Runtime compiled with Emscripten; the open-source components it
+  statically links are listed, with their licenses, in ONNX Runtime's
+  [ThirdPartyNotices.txt for v1.22.0](https://github.com/microsoft/onnxruntime/blob/v1.22.0/ThirdPartyNotices.txt).
+  License text:
+
+  ```
+  MIT License
+
+  Copyright (c) Microsoft Corporation
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+  ```
 
 ## Prediction data
 
-Two providers ship, with separately-tracked data:
+The ¹H/¹³C predictor is a GNN with the OCL-native HOSE lookup as cross-check and
+fallback; its model weights are separately-tracked data:
+
+- **GNN shift model weights** (`src/providers/gnn/model/1H.fp16.onnx`,
+  `src/providers/gnn/model/13C.fp16.onnx`) and its **training-domain counts**
+  (`src/providers/gnn/model/domain.json`) — fitted to NMRShiftDB2 atom
+  assignments, so offered under the same **nmrshiftdb2 Database License**
+  (ODbL-derived) as the HOSE statistics, never under MIT. They contain no
+  structures. Provenance and license: `src/providers/ocl/NMRSHIFTDB2_LICENSE.md`.
+- **NMRexp-derived ¹⁹F GNN model weights, training-domain counts and HOSE shift
+  statistics** (`src/providers/gnn/model-19F/19F.fp16.onnx`,
+  `src/providers/gnn/model-19F/domain.json`,
+  `src/providers/gnn/model-19F/hose-table.json`; ¹⁹F, CF3 only) — derived from
+  **NMRexp** by Wang, Jun-Jie and Zhu, Rong (Zenodo, DOI 10.5281/zenodo.17296666;
+  dataset paper Wang, J.-J., Jin, Y., Zhi, C.-Y. et al., Scientific Data 12, 1954
+  (2025), DOI 10.1038/s41597-025-06245-5), licensed under
+  [**CC BY 4.0**](https://creativecommons.org/licenses/by/4.0/). Changes were made:
+  the ¹⁹F rows were filtered (single fluorine environment, single peak),
+  deduplicated, cleaned by a pre-registered outlier rule, and transformed into
+  aggregated HOSE shift statistics and GNN model weights. They contain no
+  structures, are not endorsed by the dataset's creators, and are offered as-is
+  (CC BY 4.0, Section 5). They are under CC BY 4.0, never under MIT and never under
+  the nmrshiftdb2 Database License. NMRShiftDB2 ¹⁹F assignments were used only as
+  the test gate; they are not a source of these files.
+  [NMRexp](https://doi.org/10.5281/zenodo.17296666) · [Dataset paper](https://doi.org/10.1038/s41597-025-06245-5) · [Attribution and license text](src/providers/gnn/model-19F/NMREXP_LICENSE.md)
+
+Two lookup providers ship, with separately-tracked data:
 
 - **Fixture provider** (`providers/fixture/fixtureDatabase.ts`) — **ChemDraft-owned
   synthetic fixtures**, not derived from any experimental dataset. Used for
   deterministic tests / offline fallback.
-- **OCL-native provider** (default) — its reference database
-  `providers/ocl/nmrshiftdb2.database.json` is a **derivative database compiled
-  from NMRShiftDB2** experimental assignments, under the **nmrshiftdb2 Database
+- **OCL-native provider** (the HOSE lookup; the default GNN provider uses it as
+  cross-check and fallback for ¹H/¹³C, and for all ³¹P) — its reference database
+  `src/providers/ocl/nmrshiftdb2.database.json` is a **derivative database compiled
+  from NMRShiftDB2** assignments (the database does not mark which are experimental), under the **nmrshiftdb2 Database
   License** (ODbL-derived; commercial use permitted, share-alike, attribution).
-  Provenance, license, and attribution: `providers/ocl/NMRSHIFTDB2_LICENSE.md`.
+  Provenance, license, and attribution: `src/providers/ocl/NMRSHIFTDB2_LICENSE.md`.
   It contains aggregated statistics only, no structures. Rebuild via
   `scripts/build-database.ts`.
+- **Ilm-NMR-P31-derived ³¹P HOSE shift statistics** (`src/providers/ocl/ilm-nmr-p31.database.json`)
+  — aggregated statistics from Ilm-NMR-P31 v3.0 (Zenodo,
+  DOI 10.5281/zenodo.20762603; 43,317 entries), licensed under
+  [**CC BY 4.0**](https://creativecommons.org/licenses/by/4.0/); see also
+  Hack et al. (2023), DOI 10.1186/s13321-023-00792-y. About 27,000 of those entries
+  come from NMRexp (Wang, Jun-Jie and Zhu, Rong, Zenodo DOI 10.5281/zenodo.17296666,
+  **CC BY 4.0**; Wang, J.-J., Jin, Y., Zhi, C.-Y. et al., Scientific Data 12, 1954
+  (2025), DOI 10.1038/s41597-025-06245-5). The values were filtered and transformed
+  into aggregated HOSE statistics. The table was built from the GitHub copy
+  clacor/Ilm-NMR-P31 at ead6f914, identical in content to v3.0; that copy carries a
+  **BSD-3-Clause** license, copyright (c) 2026 Robert Geitner, which is kept as
+  credit. Redistributed with the author's permission (owner, 2026-11-20).
+  [Ilm-NMR-P31 v3.0](https://doi.org/10.5281/zenodo.20762603) · [NMRexp](https://doi.org/10.5281/zenodo.17296666) · [Dataset paper](https://doi.org/10.1186/s13321-023-00792-y) · [clacor/Ilm-NMR-P31 at ead6f914d2bdfb60e4befea72ea503d32978d358](https://github.com/clacor/Ilm-NMR-P31/tree/ead6f914d2bdfb60e4befea72ea503d32978d358) · [Attribution and license text](src/providers/ocl/ILM_NMR_P31_LICENSE.md)
 
-The plugin's **code license is not yet finalized**. The repository is not licensed for public
-redistribution until the project owner chooses and applies explicit terms. The compiled database is
-a **separate data asset** with its own license, surfaced at runtime in the panel's "Reference
-database" section (see ADR-0014). The included `LICENSE` records the current internal-only code
-status. Do not infer public code-redistribution permission from the data license or from a
-dependency's license.
+The plugin's original **code is MIT-licensed**, as recorded in `LICENSE`. The root
+`package.json` declares the compiled data assets (the HOSE tables and the GNN
+model weights, ¹⁹F included) and their separate licenses under `dataLicenses`. The
+panel's "Reference database" section shows the license and credit for each database
+used, and its "GNN model" sections show each model's training data and license. The
+installable package includes that package metadata, this notice, and every declared
+data license file.
 
 ## Rule-parameter sources
 

@@ -20,7 +20,10 @@ export interface IndexedNmredataMolecule {
  * through the reorder. Returns undefined when the molfile cannot be parsed or the mapping is not
  * one-to-one.
  */
-export function parseNmredataMolecule(molfile: string): IndexedNmredataMolecule | undefined {
+export function parseNmredataMolecule(
+  molfile: string,
+  options?: { recoverStereoParsing?: boolean }
+): IndexedNmredataMolecule | undefined {
   // `padEnd()` on a short CRLF V2000 atom line would otherwise leave the carriage return before the
   // inserted map field, causing OCL to stop parsing the line before it reaches the stamp.
   const stamped = stampMolfileAtomIndexes(molfile.replace(/\r\n?/g, "\n"));
@@ -28,7 +31,9 @@ export function parseNmredataMolecule(molfile: string): IndexedNmredataMolecule 
 
   let molecule: OCL.Molecule;
   try {
-    molecule = OCL.Molecule.fromMolfile(stamped.molfile);
+    molecule = options?.recoverStereoParsing
+      ? parseMolfileWithStereoRecovery(stamped.molfile)
+      : OCL.Molecule.fromMolfile(stamped.molfile);
   } catch {
     return undefined;
   }
@@ -44,6 +49,29 @@ export function parseNmredataMolecule(molfile: string): IndexedNmredataMolecule 
     oclAtomByMolfileIndex.set(molfileIndex, atom);
   }
   return { molecule, oclAtomByMolfileIndex };
+}
+
+/** For a property-free V2000 CTAB, OCL's end-of-input path can skip eager stereo perception.
+ * Use this on a stereo perception failure only. Clear coordinates so later stereo computation
+ * does not repeat the failure, while preserving atom/bond records and assignment mapping. */
+export function parseMolfileWithStereoRecovery(molfile: string): OCL.Molecule {
+  try {
+    return OCL.Molecule.fromMolfile(molfile);
+  } catch (error) {
+    const lines = molfile.split("\n");
+    const counts = lines[3];
+    const atomCount = Number(counts?.slice(0, 3));
+    const bondCount = Number(counts?.slice(3, 6));
+    if (!counts?.includes("V2000") || lines.length !== 5 + atomCount + bondCount || lines.at(-1) !== "M  END") {
+      throw error;
+    }
+    lines[3] = `${counts.slice(0, 12)}  1${counts.slice(15)}`;
+    const zeroCoordinates = "    0.0000".repeat(3);
+    for (let index = 4; index < 4 + atomCount; index += 1) {
+      lines[index] = zeroCoordinates + lines[index].slice(30);
+    }
+    return OCL.Molecule.fromMolfile(lines.slice(0, -1).join("\n"));
+  }
 }
 
 interface StampedMolfile {

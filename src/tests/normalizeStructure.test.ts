@@ -73,4 +73,25 @@ describe("normalizeStructure", () => {
       normalizeStructure({ format: "smiles", value: "[SiH4]" }).normalized.warnings.map((warning) => warning.code)
     ).toContain("NMR_UNSUPPORTED_ELEMENT");
   });
+
+  it("preserves D but discloses first-order hydrogen matching instead of refusing it", () => {
+    const { molecule, normalized } = normalizeStructure({ format: "smiles", value: "CCO[2H]" });
+    expect(molecule.getAtomMass(3)).toBe(2);
+    expect(normalized.warnings).toEqual([
+      expect.objectContaining({
+        code: "NMR_DEUTERIUM_SHIFT_NOT_MODELLED",
+        message: expect.stringContaining("treated as hydrogen for database environment matching and rule estimates"),
+        atomIndices: [3]
+      })
+    ]);
+    expect(normalized.warnings[0].message).toContain("isotope shifts are not modelled (first-order)");
+  });
+
+  it.each(["[13CH3]CO[2H]", "C[15NH][2H]", "CO[3H]"])(
+    "keeps the unsupported-isotope warning for other labels, including mixed D labels: %s",
+    (value) => {
+      const { normalized } = normalizeStructure({ format: "smiles", value });
+      expect(normalized.warnings.map((warning) => warning.code)).toContain("NMR_ISOTOPE_NOT_SUPPORTED");
+    }
+  );
 });

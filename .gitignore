@@ -3,6 +3,7 @@ node_modules/
 
 # Build output / release artifacts
 dist/
+local-data/
 
 # Vite cache
 .vite/
@@ -10,3 +11,5 @@ dist/
 # Logs & OS cruft
 *.log
 .DS_Store
+__pycache__/
+*.pyc

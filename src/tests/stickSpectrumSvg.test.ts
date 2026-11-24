@@ -53,4 +53,48 @@ describe("renderStickSpectrumSvg", () => {
     expect(predicted).toContain("¹³C δ (ppm) — predicted");
     expect(predicted).not.toContain("synthetic fixture");
   });
+
+  it.each(["1H", "13C"] as const)("labels %s estimates from either explicit source or legacy evidence", (nucleus) => {
+    const base = { ...resonance(1.2), nucleus };
+    for (const estimate of [
+      { ...base, source: "rule-estimate" as const },
+      { ...base, evidence: { method: "rule-estimated" as const } }
+    ]) {
+      const svg = renderStickSpectrumSvg(result([estimate], "hose-fragment"));
+      expect(svg).toContain('stroke-dasharray="4 3"');
+      expect(svg).toContain("1.2 est.</text>");
+      expect(svg).toContain("est. / dashed stick = rule estimate; no database match");
+    }
+    const matched = renderStickSpectrumSvg(result([{ ...base, source: "lookup" }], "hose-fragment"));
+    expect(matched).not.toContain("stroke-dasharray");
+    expect(matched).not.toContain("est.");
+  });
+
+  it.each([400, 600, 800])("renders H/D sticks at the requested %i MHz field", (protonFrequencyMHz) => {
+    const spectrum = result([{
+      ...resonance(2, 3), nucleus: "1H",
+      multiplet: { label: "dt", couplings: [
+        { jHz: 7, partnerCount: 1, toAtomIndex: 1, kind: "vicinal" },
+        { jHz: 1.0745, partnerCount: 1, partnerNucleus: "2H", toAtomIndex: 2, kind: "vicinal" }
+      ] }
+    }]);
+    const svg = renderStickSpectrumSvg(spectrum, { protonFrequencyMHz, width: 10000 });
+    // Reversed −3–12 ppm axis, with 22 px margins. Check the actual serialized geometry,
+    // allowing only the renderer's intentional rounding to a tenth of a pixel.
+    const offsetsHz = [-4.5745, -3.5, -2.4255, 2.4255, 3.5, 4.5745];
+    const expectedXs = offsetsHz.map((offsetHz) =>
+      Math.round((22 + (12 - (2 + offsetHz / protonFrequencyMHz)) / 15 * 9956) * 10) / 10);
+    expect(stickXs(svg)).toEqual(expectedXs);
+    expect(svg).toContain(`spin-1 intensities; ${protonFrequencyMHz} MHz`);
+    const heights = [...svg.matchAll(/<line[^>]*y1="([\d.]+)"[^>]*y2="([\d.]+)"[^>]*stroke="#2563eb"/g)]
+      .map((match) => Number(match[1]) - Number(match[2]));
+    expect(new Set(heights).size).toBe(1); // nested doublet of equal-height D triplets
+    if (protonFrequencyMHz === 400) {
+      expect(svg).toBe(renderStickSpectrumSvg(spectrum, { width: 10000 }));
+    }
+  });
+
+  it.each([0, -400, NaN, Infinity])("rejects invalid SVG field %s", (protonFrequencyMHz) => {
+    expect(() => renderStickSpectrumSvg(result([]), { protonFrequencyMHz })).toThrow(RangeError);
+  });
 });

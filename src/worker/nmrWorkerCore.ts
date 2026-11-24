@@ -1,17 +1,19 @@
 import type { NmrPredictor } from "../domain/contracts";
 import { NmrErrorCodes, isNmrError } from "../domain/errors";
 import { FixtureHosePredictor } from "../providers/fixture/FixtureHosePredictor";
-import { OclHosePredictor } from "../providers/ocl/OclHosePredictor";
+import { GnnShiftPredictor } from "../providers/gnn/GnnShiftPredictor";
 import type { NmrWorkerErrorPayload, NmrWorkerRequest, NmrWorkerResponse } from "./protocol";
 
-/** Default provider selection by id: the experimental OCL-native predictor unless the fixture is
- *  explicitly requested (kept for deterministic tests). */
+/** Default provider selection by id: the GNN-first predictor (GNN for ¹H/¹³C with the OCL HOSE
+ *  lookup as cross-check and fallback; ³¹P by HOSE lookup) unless the fixture is explicitly requested
+ *  (kept for deterministic tests). Constructing it loads no model: the GNN loads on the first ¹H/¹³C
+ *  prediction. */
 function defaultPredictor(providerId: string): NmrPredictor {
-  return providerId === "chemdraft.fixture-hose" ? new FixtureHosePredictor() : new OclHosePredictor();
+  return providerId === "chemdraft.fixture-hose" ? new FixtureHosePredictor() : new GnnShiftPredictor();
 }
 
 export interface NmrWorkerHandlerDeps {
-  /** Provider factory, keyed by the initialize message's providerId. Defaults to the OCL predictor
+  /** Provider factory, keyed by the initialize message's providerId. Defaults to the GNN-first predictor
    * unless the fixture provider is explicitly requested. */
   createPredictor?: (providerId: string) => NmrPredictor;
 }

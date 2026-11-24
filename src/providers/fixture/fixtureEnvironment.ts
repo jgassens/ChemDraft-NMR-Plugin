@@ -1,13 +1,15 @@
 import * as OCL from "openchemlib";
 
+import { protonCount as observedProtonCount } from "../ocl/hydrogenIsotopes";
+
 /**
  * Deterministic atom-centered environment code via a breadth-first walk to `spheres` depth. Each
  * sphere contributes a sorted, bracketed list of neighbor descriptors
- * (`<bondOrder><element><aromatic?><hCount>`). Ring-closure bonds (back to an already-seen atom that
- * is not the walk parent) are included, so a ring atom is distinguished from an equivalent-looking
- * chain atom. This is a *fixture signature*, not a validated HOSE code — hence the "fixture-fragment"
- * method label. Two atoms with the same code are treated as equivalent (symmetric atoms collapse
- * into one resonance).
+ * (`<bondOrder><element><aromatic?>[q<charge>]h<hCount>`). An omitted neighbor charge means zero.
+ * ³¹P lookup spells out zero charges to preserve its existing database keys.
+ * Ring-closure bonds back to an already-seen atom other than the walk parent distinguish ring atoms
+ * from equivalent-looking chain atoms. The fixture provider uses this heuristic with the
+ * "fixture-fragment" method label and collapses atoms with matching codes into one resonance.
  */
 
 /** Heteroatoms whose attached hydrogens are treated as labile/exchangeable for ¹H prediction. */
@@ -28,7 +30,12 @@ export interface AtomEnvironment {
   environmentCode: string;
 }
 
-export function describeAtomEnvironment(molecule: OCL.Molecule, atom: number, spheres = 2): AtomEnvironment {
+export function describeAtomEnvironment(
+  molecule: OCL.Molecule,
+  atom: number,
+  spheres = 2,
+  includeZeroNeighborCharges = false
+): AtomEnvironment {
   const atomicNumber = molecule.getAtomicNo(atom);
   const aromatic = molecule.isAromaticAtom(atom);
   const charge = molecule.getAtomCharge(atom);
@@ -52,8 +59,10 @@ export function describeAtomEnvironment(molecule: OCL.Molecule, atom: number, sp
         const bond = molecule.getConnBond(current, index);
         const order = molecule.isAromaticBond(bond) ? "~" : String(molecule.getConnBondOrder(current, index));
         const neighborAromatic = molecule.isAromaticAtom(neighbor) ? "a" : "";
+        const neighborCharge = molecule.getAtomCharge(neighbor);
+        const chargeLabel = neighborCharge !== 0 || includeZeroNeighborCharges ? `q${neighborCharge}` : "";
         descriptors.push(
-          `${order}${elementSymbol(molecule.getAtomicNo(neighbor))}${neighborAromatic}h${molecule.getAllHydrogens(neighbor)}`
+          `${order}${elementSymbol(molecule.getAtomicNo(neighbor))}${neighborAromatic}${chargeLabel}h${molecule.getAllHydrogens(neighbor)}`
         );
         if (!visited.has(neighbor)) {
           visited.add(neighbor);
@@ -97,7 +106,8 @@ export interface ProtonEnvironment extends AtomEnvironment {
 export function collectProtonEnvironments(molecule: OCL.Molecule, spheres = 2): ProtonEnvironment[] {
   const environments: ProtonEnvironment[] = [];
   for (let atom = 0; atom < molecule.getAllAtoms(); atom += 1) {
-    const protonCount = molecule.getAllHydrogens(atom);
+    // D is excluded from ¹H counts, as in normalizeStructure: CD3Cl has no ¹H environment.
+    const protonCount = observedProtonCount(molecule, atom);
     if (protonCount === 0) {
       continue;
     }
