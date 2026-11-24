@@ -27,6 +27,13 @@ import {
   GNN_MODEL_RELEASE
 } from "../providers/gnn/modelRelease";
 import { DEUTERIUM_PROTON_GYROMAGNETIC_RATIO } from "../domain/firstOrderCoupling";
+import {
+  HD_ESTIMATE_CAPTION_SENTENCE,
+  HD_ESTIMATE_J_SUFFIX,
+  HD_ESTIMATE_LABEL,
+  HH_ESTIMATE_CAPTION_SENTENCE,
+  RULE_ESTIMATE_MARKER
+} from "./labels";
 import { NmrWarningCodes } from "../domain/warnings";
 import { deuteriumMultipletComponents, hasDeuteriumCoupling } from "./deuteriumMultiplet";
 
@@ -306,7 +313,7 @@ function linkedFigureSection(result: NmrPredictionResult, methods: ResultMethodS
       id: resonance.id,
       ppm: resonance.deltaPpm,
       intensity: resonance.equivalentNuclei ?? 1,
-      label: `${resonance.deltaPpm.toFixed(2)}${isRuleEstimated(resonance) ? " est." : ""}`,
+      label: `${resonance.deltaPpm.toFixed(2)}${isRuleEstimated(resonance) ? ` ${RULE_ESTIMATE_MARKER}` : ""}`,
       atomIndices: resonance.atomRefs.map((ref) => ref.sourceAtomIndex)
     };
     const tier = confidenceTier(resonance);
@@ -330,7 +337,7 @@ function linkedFigureSection(result: NmrPredictionResult, methods: ResultMethodS
         ...peak,
         id: `${peak.id}-line-${index}`,
         intensity: peak.intensity * component.intensity,
-        label: index === components.length - 1 ? `${peak.label} (${resonance.multiplet?.label}; H–D est.)` : "",
+        label: index === components.length - 1 ? `${peak.label} (${resonance.multiplet?.label}; ${HD_ESTIMATE_LABEL})` : "",
         ...(component.separationHz === 0 ? {} : {
           couplings: [{ jHz: component.separationHz, partnerCount: 1 }]
         })
@@ -351,7 +358,7 @@ function linkedFigureSection(result: NmrPredictionResult, methods: ResultMethodS
     kind: "linkedFigure",
     title: `Predicted ${nucleusLabel(nucleus)} NMR${nucleus === "19F" ? " (CF3 only)" : ""}`,
     caption: figureCaption(methods, nucleus) + (result.resonances.some(hasDeuteriumCoupling)
-      ? " H–D couplings are typical first-order estimates; H–D multiplets use spin-1 intensities and follow the selected spectrometer field (see H–D coupling legend)."
+      ? HD_ESTIMATE_CAPTION_SENTENCE
       : ""),
     spectrum: {
       nucleus,
@@ -430,7 +437,7 @@ function figureCaption(methods: ResultMethodSummary, nucleus: NmrNucleus): strin
       ? "Peaks identify the matched phosphorus atoms. "
       : nucleus === "19F"
       ? "¹⁹F is CF3 only in this version; the peak identifies the CF3 fluorine atoms, and couplings are not shown. "
-      : "¹H–¹H couplings are typical first-order estimates. ") +
+      : HH_ESTIMATE_CAPTION_SENTENCE) +
     "Peak height represents predicted equivalent nuclei, not experimental integration. " +
     "Scroll to zoom, drag to pan; hover a peak to highlight its atoms.";
   if (methods.fixture) return `Synthetic fixture spectrum. ${interaction}`;
@@ -510,7 +517,7 @@ function resonanceTable(result: NmrPredictionResult): PluginPanelSection {
 function formatCouplings(resonance: NmrResonance): string {
   const couplings = resonance.multiplet?.couplings ?? [];
   return couplings.length === 0 ? "—" : couplings.map((coupling) =>
-    coupling.jHz.toFixed(1) + (coupling.partnerNucleus === "2H" ? " (H–D est.)" : "")
+    coupling.jHz.toFixed(1) + (coupling.partnerNucleus === "2H" ? HD_ESTIMATE_J_SUFFIX : "")
   ).join(", ");
 }
 
@@ -562,7 +569,7 @@ function confidenceTier(resonance: NmrResonance): ConfidenceTier {
 function confidenceLabel(resonance: NmrResonance): string {
   const tier = confidenceTier(resonance);
   if (tier === "estimated") {
-    return "est.";
+    return RULE_ESTIMATE_MARKER;
   }
   if (tier === "unknown") {
     return "—";
